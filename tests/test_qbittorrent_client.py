@@ -18,8 +18,8 @@ class FakeClient:
     def torrents_categories(self) -> dict[str, object]:
         return {}
 
-    def torrents_create_category(self, category: str, save_path: str) -> None:
-        self.created_categories.append((category, save_path))
+    def torrents_create_category(self, name: str, save_path: str) -> None:
+        self.created_categories.append((name, save_path))
 
     def torrents_add(self, **kwargs: object) -> str:
         self.added.append(kwargs)

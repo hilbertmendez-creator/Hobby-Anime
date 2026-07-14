@@ -34,7 +34,7 @@ class QBittorrentGateway:
         categories = self.client.torrents_categories()
         if self.category and self.category not in categories:
             self.client.torrents_create_category(
-                category=self.category,
+                name=self.category,
                 save_path=self.save_path,
             )
 
