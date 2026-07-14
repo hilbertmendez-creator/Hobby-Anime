@@ -10,9 +10,11 @@ con Docker Compose y no requiere servicios de pago.
 ## Arquitectura
 
 ```text
-RSS autorizado ──> agente diario ──> qBittorrent ──> /volume1/data/torrents
-                       │
-                       └──> SQLite (/config/hobby-anime.db)
+RSS autorizado ──> filtro español ──> qBittorrent ──> torrents/quarantine
+                         │                                  │
+                         └──> SQLite          ffprobe <─────┘
+                                                     │
+                                         torrents/verified
 
 /volume1/data/media ──> auditoría mensual ──> AniList ──> Ollama opcional
            │                                      │
@@ -30,6 +32,9 @@ posteriormente.
 
 - Filtrado RSS por resolución, grupo, términos requeridos, términos excluidos y
   antigüedad.
+- Política española obligatoria con términos alternativos y grupos confiables.
+- Cuarentena y validación de audio/subtítulos españoles mediante `ffprobe`.
+- Rechazo seguro de pistas parciales como `forced`, `signs` o `songs`.
 - Inyección idempotente en qBittorrent y seguimiento de estados en SQLite.
 - Reintento de entradas que fallaron; una entrada añadida no se duplica.
 - Planificador diario y mensual mediante APScheduler.
@@ -65,6 +70,8 @@ El resultado esperado es:
 /volume1/data/
 ├── media/
 └── torrents/
+    ├── quarantine/
+    └── verified/
 ```
 
 Para comprobar que el NAS permite hardlinks:
@@ -117,7 +124,7 @@ En qBittorrent abre **Tools > Options**:
 
 1. Cambia la contraseña Web UI y copia el mismo valor a
    `QBITTORRENT_PASSWORD` en `.env`.
-2. Confirma que la ruta de guardado sea `/data/torrents`.
+2. Confirma que la ruta de guardado sea `/data/torrents/quarantine`.
 3. No desactives la autenticación para redes externas.
 
 En Jellyfin completa el asistente y crea una biblioteca que apunte a `/media`.
@@ -153,7 +160,24 @@ docker compose logs --since=10m hobby-anime
 ```
 
 El torrent debe aparecer con la categoría `hobby-anime` y la ruta
-`/data/torrents`.
+`/data/torrents/quarantine`.
+
+Cuando termine, ejecuta una verificación manual:
+
+```bash
+docker compose exec hobby-anime hobby-anime verify
+```
+
+El agente inspecciona todos los videos de la descarga. Si cada archivo contiene
+audio español, subtítulos españoles completos o un subtítulo externo `.es.srt`,
+qBittorrent lo mueve a `/data/torrents/verified` y asigna la categoría
+`hobby-anime-verified`. Si no cumple, detiene el torrent, lo conserva en
+cuarentena y asigna `hobby-anime-rejected`.
+
+La validación es deliberadamente estricta: pistas sin etiqueta de idioma,
+subtítulos parciales y metadatos ambiguos se rechazan. Esto evita importar
+contenido incorrecto, aunque un archivo mal etiquetado por su publicador todavía
+puede requerir revisión humana.
 
 ### 6. Activar IA local (opcional)
 
@@ -185,6 +209,14 @@ automáticamente el reporte determinista.
 | `RSS_INCLUDE_TERMS` | vacío | Exige todos los términos indicados |
 | `RSS_EXCLUDE_TERMS` | vacío | Descarta si coincide cualquiera |
 | `RSS_MAX_AGE_HOURS` | `72` | Evita importar todo el historial al iniciar |
+| `SPANISH_ONLY` | `true` | Exige evidencia española antes de descargar |
+| `SPANISH_LANGUAGE_TERMS` | variantes españolas | Coincidencia OR en título, descripción, categorías o magnet |
+| `SPANISH_NEGATIVE_TERMS` | `raw,...` | Rechaza candidatos incompatibles |
+| `SPANISH_TRUSTED_GROUPS` | vacío | Grupos cuya publicación implica español |
+| `QBITTORRENT_SAVE_PATH` | `/data/torrents/quarantine` | Área aislada de descarga |
+| `QBITTORRENT_VERIFIED_PATH` | `/data/torrents/verified` | Descargas verificadas |
+| `VERIFICATION_INTERVAL_MINUTES` | `10` | Frecuencia del verificador |
+| `FFPROBE_TIMEOUT_SECONDS` | `60` | Límite por archivo inspeccionado |
 | `DAILY_HOUR` / `DAILY_MINUTE` | `3` / `0` | Hora local del agente diario |
 | `MONTHLY_DAY` / `MONTHLY_HOUR` | `1` / `9` | Ejecución mensual (día entre 1 y 28) |
 | `OLLAMA_ENABLED` | `false` | Activa el reporte con LLM local |
@@ -201,6 +233,7 @@ hobby-anime init-db
 hobby-anime audit
 hobby-anime daily --dry-run
 hobby-anime daily
+hobby-anime verify
 hobby-anime monthly
 hobby-anime doctor
 hobby-anime scheduler

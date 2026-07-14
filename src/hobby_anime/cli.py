@@ -13,6 +13,7 @@ from hobby_anime.doctor import run_checks
 from hobby_anime.library import audit_library
 from hobby_anime.monthly import run_monthly
 from hobby_anime.scheduler import start_scheduler
+from hobby_anime.verification import run_verification
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daily_parser = subparsers.add_parser("daily", help="Read RSS feeds and enqueue matching items")
     daily_parser.add_argument("--dry-run", action="store_true", help="Do not send items to qBittorrent")
+    subparsers.add_parser("verify", help="Verify completed downloads with the Spanish policy")
     subparsers.add_parser("monthly", help="Audit the library and create a discovery report")
     subparsers.add_parser("scheduler", help="Run daily and monthly jobs continuously")
     subparsers.add_parser("init-db", help="Create or upgrade the local database")
@@ -44,6 +46,10 @@ def main() -> int:
     if args.command == "monthly":
         print(run_monthly(settings))
         return 0
+    if args.command == "verify":
+        result = run_verification(settings)
+        print(json.dumps(asdict(result), ensure_ascii=False))
+        return 1 if result.failed else 0
     if args.command == "scheduler":
         start_scheduler(settings)
         return 0

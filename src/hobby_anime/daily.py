@@ -34,6 +34,10 @@ def run_daily(
         groups=settings.rss_groups,
         include_terms=settings.rss_include_terms,
         exclude_terms=settings.rss_exclude_terms,
+        spanish_only=settings.spanish_only,
+        spanish_language_terms=settings.spanish_language_terms,
+        spanish_negative_terms=settings.spanish_negative_terms,
+        spanish_trusted_groups=settings.spanish_trusted_groups,
         max_age_hours=settings.rss_max_age_hours,
     )
     result = DailyRunResult(discovered=len(discovered), matched=len(matches))

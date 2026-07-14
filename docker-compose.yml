@@ -46,6 +46,7 @@ services:
     volumes:
       - ${AGENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/agent}:/config
       - ${DATA_ROOT:-/volume1/data}/media:/data/media:ro
+      - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents:ro
     depends_on:
       - qbittorrent
       - jellyfin

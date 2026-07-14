@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -22,6 +24,23 @@ def run_checks(settings: Settings) -> dict[str, dict[str, Any]]:
     checks["media"] = {
         "ok": media_ok,
         "detail": str(settings.media_path) if media_ok else f"Directory not found: {settings.media_path}",
+    }
+
+    quarantine_path = Path(settings.qbt_save_path)
+    quarantine_ok = quarantine_path.is_dir()
+    checks["quarantine"] = {
+        "ok": quarantine_ok,
+        "detail": (
+            str(quarantine_path)
+            if quarantine_ok
+            else f"Directory not found: {quarantine_path}"
+        ),
+    }
+
+    ffprobe_path = shutil.which(settings.ffprobe_path)
+    checks["ffprobe"] = {
+        "ok": ffprobe_path is not None,
+        "detail": ffprobe_path or f"Executable not found: {settings.ffprobe_path}",
     }
 
     try:

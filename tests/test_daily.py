@@ -24,7 +24,7 @@ class FakeGateway:
 def test_daily_run_adds_once(settings: Settings) -> None:
     item = FeedItem(
         "fingerprint",
-        "Example series - 01 [1080p]",
+        "Example series - 01 [1080p] [Sub Español]",
         "magnet:?xt=example",
         datetime.now(UTC),
     )
@@ -40,7 +40,11 @@ def test_daily_run_adds_once(settings: Settings) -> None:
 
 
 def test_daily_dry_run_does_not_enqueue(settings: Settings) -> None:
-    item = FeedItem("fingerprint", "Example [1080p]", "magnet:?xt=example")
+    item = FeedItem(
+        "fingerprint",
+        "Example [1080p] [Sub Español]",
+        "magnet:?xt=example",
+    )
     gateway = FakeGateway()
 
     result = run_daily(settings, dry_run=True, reader=FakeReader([item]), gateway=gateway)
