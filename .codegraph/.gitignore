@@ -1,0 +1,5 @@
+# Los datos de CodeGraph son locales y no deben confirmarse en Git.
+# Se ignora todo excepto este archivo para excluir la base de datos,
+# procesos, sockets y registros transitorios.
+*
+!.gitignore

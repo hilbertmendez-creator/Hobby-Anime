@@ -230,6 +230,42 @@ set +a
 hobby-anime daily --dry-run
 ```
 
+## CodeGraph para Cursor
+
+El repositorio incluye `.cursor/mcp.json` para iniciar el servidor MCP de
+CodeGraph sobre el workspace activo. El índice SQLite es local y está excluido
+de Git mediante `.codegraph/.gitignore`.
+
+Instala la CLI en cada equipo de desarrollo:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Inicializa y comprueba el índice desde la raíz del repositorio:
+
+```bash
+codegraph init
+codegraph status
+codegraph query run_daily
+codegraph impact run_daily
+```
+
+Reinicia Cursor después de instalar la CLI. En **Settings > Tools & MCP** debe
+aparecer el servidor `codegraph`. La configuración utiliza
+`${workspaceFolder}`, por lo que funciona aunque el repositorio se clone en una
+ruta diferente. La telemetría está desactivada para el proceso MCP; para
+desactivarla también en invocaciones manuales:
+
+```bash
+codegraph telemetry off
+```
+
+CodeGraph mantiene el índice sincronizado mientras el servidor MCP está activo.
+Si fuera necesario reconstruirlo por completo, ejecuta `codegraph index`.
+
 ## Operación y respaldo
 
 - Respalda los directorios de configuración y, como mínimo,

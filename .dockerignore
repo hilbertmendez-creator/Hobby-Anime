@@ -1,5 +1,7 @@
 .git
 .github
+.codegraph
+.cursor
 .env
 .pytest_cache
 .venv
