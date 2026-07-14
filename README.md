@@ -266,6 +266,50 @@ codegraph telemetry off
 CodeGraph mantiene el índice sincronizado mientras el servidor MCP está activo.
 Si fuera necesario reconstruirlo por completo, ejecuta `codegraph index`.
 
+## Gentle AI para Cursor
+
+El proyecto usa el preset `minimal` de Gentle AI con alcance de workspace y
+persona `neutral`. Esto añade memoria persistente mediante Engram y reglas
+didácticas sin instalar GGA, temas, permisos globales ni proveedores externos.
+La entrada `engram` convive con CodeGraph en `.cursor/mcp.json`.
+
+Instala el binario oficial en cada equipo:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh \
+  | bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Para registrar o actualizar este workspace:
+
+```bash
+GENTLE_AI_NO_SELF_UPDATE=1 gentle-ai install \
+  --agent cursor \
+  --preset minimal \
+  --persona neutral \
+  --scope workspace
+gentle-ai doctor
+```
+
+Reinicia Cursor y confirma en **Settings > Tools & MCP** que `engram` y
+`codegraph` estén activos. El diagnóstico puede indicar que Engram no responde
+cuando Cursor está cerrado, porque el servidor MCP todavía no está ejecutándose.
+Los avisos sobre GGA, Claude Code u OpenCode también son esperables con este
+preset y no afectan la integración de Cursor.
+
+Comandos útiles:
+
+```bash
+gentle-ai version
+engram version
+gentle-ai sync --dry-run
+```
+
+Gentle AI guarda su estado y respaldos en `~/.gentle-ai`; no contienen código
+del proyecto y no se confirman en este repositorio.
+
 ## Operación y respaldo
 
 - Respalda los directorios de configuración y, como mínimo,
