@@ -104,7 +104,13 @@ def test_requires_every_video_in_batch_to_pass(tmp_path: Path) -> None:
 def test_accepts_external_spanish_subtitle(tmp_path: Path) -> None:
     video = tmp_path / "episode.mkv"
     video.touch()
-    (tmp_path / "episode.es.srt").touch()
+    (tmp_path / "episode.es.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\n"
+        "¿Por qué no me dijiste que la puerta estaba abierta?\n\n"
+        "2\n00:00:04,000 --> 00:00:06,000\n"
+        "El camino de la montaña es largo, pero vamos a llegar.\n",
+        encoding="utf-8",
+    )
     runner = FakeRunner(
         [
             {
@@ -118,3 +124,28 @@ def test_accepts_external_spanish_subtitle(tmp_path: Path) -> None:
     result = FfprobeInspector(runner=runner).inspect(video)
 
     assert result.accepted is True
+
+
+def test_rejects_mislabeled_external_subtitle(tmp_path: Path) -> None:
+    video = tmp_path / "episode.mkv"
+    video.touch()
+    (tmp_path / "episode.es.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\n"
+        "The road through this mountain is long and dangerous.\n\n"
+        "2\n00:00:04,000 --> 00:00:06,000\n"
+        "We should return home before the night arrives.\n",
+        encoding="utf-8",
+    )
+    runner = FakeRunner(
+        [
+            {
+                "streams": [
+                    {"codec_type": "audio", "tags": {"language": "jpn"}}
+                ]
+            }
+        ]
+    )
+
+    result = FfprobeInspector(runner=runner).inspect(video)
+
+    assert result.accepted is False

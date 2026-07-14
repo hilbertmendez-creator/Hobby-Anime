@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import unicodedata
 from pathlib import Path
@@ -28,6 +29,33 @@ SPANISH_SIDECAR_SUFFIXES = (
     ".es.ssa",
     ".spa.ssa",
 )
+SPANISH_COMMON_WORDS = {
+    "al",
+    "con",
+    "de",
+    "del",
+    "el",
+    "en",
+    "es",
+    "la",
+    "las",
+    "lo",
+    "los",
+    "me",
+    "mi",
+    "no",
+    "para",
+    "por",
+    "que",
+    "se",
+    "si",
+    "su",
+    "te",
+    "tu",
+    "un",
+    "una",
+    "y",
+}
 
 
 class FfprobeInspector:
@@ -145,7 +173,7 @@ def _video_files(content_path: Path) -> list[Path]:
 
 
 def _normalize_language(value: str) -> str:
-    return _normalize(value).replace(" ", "-")
+    return _normalize(value).replace(" ", "-").replace("_", "-")
 
 
 def _normalize(value: str) -> str:
@@ -154,7 +182,24 @@ def _normalize(value: str) -> str:
 
 
 def _has_spanish_sidecar(video_path: Path) -> bool:
-    return any(
-        video_path.with_name(f"{video_path.stem}{suffix}").is_file()
-        for suffix in SPANISH_SIDECAR_SUFFIXES
+    for suffix in SPANISH_SIDECAR_SUFFIXES:
+        subtitle_path = video_path.with_name(f"{video_path.stem}{suffix}")
+        if subtitle_path.is_file() and _looks_like_spanish_subtitle(subtitle_path):
+            return True
+    return False
+
+
+def _looks_like_spanish_subtitle(path: Path) -> bool:
+    raw = path.read_bytes()[:65_536]
+    try:
+        content = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        content = raw.decode("latin-1")
+    words = re.findall(r"[a-záéíóúñü]+", content.casefold())
+    if len(words) < 12:
+        return False
+    common_count = sum(word in SPANISH_COMMON_WORDS for word in words)
+    distinctive_character = any(character in content.casefold() for character in "¿¡áéíóúñ")
+    return common_count >= max(3, len(words) // 12) and (
+        distinctive_character or common_count >= 5
     )

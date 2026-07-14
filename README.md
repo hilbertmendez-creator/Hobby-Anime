@@ -169,10 +169,11 @@ docker compose exec hobby-anime hobby-anime verify
 ```
 
 El agente inspecciona todos los videos de la descarga. Si cada archivo contiene
-audio español, subtítulos españoles completos o un subtítulo externo `.es.srt`,
-qBittorrent lo mueve a `/data/torrents/verified` y asigna la categoría
-`hobby-anime-verified`. Si no cumple, detiene el torrent, lo conserva en
-cuarentena y asigna `hobby-anime-rejected`.
+audio español, subtítulos españoles completos o un subtítulo externo `.es.srt`
+cuyo texto supera una comprobación conservadora de idioma, qBittorrent lo mueve
+a `/data/torrents/verified` y asigna la categoría `hobby-anime-verified`. Si no
+cumple, detiene el torrent, lo conserva en cuarentena y asigna
+`hobby-anime-rejected`.
 
 La validación es deliberadamente estricta: pistas sin etiqueta de idioma,
 subtítulos parciales y metadatos ambiguos se rechazan. Esto evita importar
