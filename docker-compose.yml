@@ -2,7 +2,7 @@ name: hobby-anime
 
 services:
   qbittorrent:
-    image: ghcr.io/linuxserver/qbittorrent:latest
+    image: ${QBITTORRENT_IMAGE:-ghcr.io/linuxserver/qbittorrent:latest}
     restart: unless-stopped
     environment:
       PUID: ${PUID:-1000}
@@ -12,16 +12,22 @@ services:
       TORRENTING_PORT: 6881
     volumes:
       - ${QBITTORRENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/qbittorrent}:/config
-      - ${DATA_ROOT:-/volume1/data}:/data
+      - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents
     ports:
-      - ${QBITTORRENT_WEB_PORT:-8080}:8080
-      - ${QBITTORRENT_PEER_PORT:-6881}:6881
-      - ${QBITTORRENT_PEER_PORT:-6881}:6881/udp
+      - "${LAN_IP:-127.0.0.1}:${QBITTORRENT_WEB_PORT:-8080}:8080"
+      - "${QBITTORRENT_PEER_PORT:-6881}:6881"
+      - "${QBITTORRENT_PEER_PORT:-6881}:6881/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - media
 
   jellyfin:
-    image: jellyfin/jellyfin:latest
+    image: ${JELLYFIN_IMAGE:-jellyfin/jellyfin:latest}
     restart: unless-stopped
     user: ${PUID:-1000}:${PGID:-1000}
     environment:
@@ -31,7 +37,84 @@ services:
       - ${JELLYFIN_CACHE_ROOT:-/volume1/docker/hobby-anime/jellyfin/cache}:/cache
       - ${DATA_ROOT:-/volume1/data}/media:/media:ro
     ports:
-      - ${JELLYFIN_WEB_PORT:-8096}:8096
+      - "${LAN_IP:-127.0.0.1}:${JELLYFIN_WEB_PORT:-8096}:8096"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - media
+
+  sonarr:
+    image: ${SONARR_IMAGE:-lscr.io/linuxserver/sonarr:latest}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${SONARR_CONFIG_ROOT:-/volume1/docker/hobby-anime/sonarr}:/config
+      - ${DATA_ROOT:-/volume1/data}:/data
+    ports:
+      - "${LAN_IP:-127.0.0.1}:${SONARR_WEB_PORT:-8989}:8989"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8989/ping >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+    networks:
+      - media
+
+  prowlarr:
+    image: ${PROWLARR_IMAGE:-lscr.io/linuxserver/prowlarr:latest}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${PROWLARR_CONFIG_ROOT:-/volume1/docker/hobby-anime/prowlarr}:/config
+    ports:
+      - "${LAN_IP:-127.0.0.1}:${PROWLARR_WEB_PORT:-9696}:9696"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9696/ping >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      sonarr:
+        condition: service_healthy
+    networks:
+      - media
+
+  bazarr:
+    image: ${BAZARR_IMAGE:-lscr.io/linuxserver/bazarr:latest}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${BAZARR_CONFIG_ROOT:-/volume1/docker/hobby-anime/bazarr}:/config
+      - ${DATA_ROOT:-/volume1/data}/media:/data/media
+    ports:
+      - "${LAN_IP:-127.0.0.1}:${BAZARR_WEB_PORT:-6767}:6767"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:6767/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      sonarr:
+        condition: service_healthy
     networks:
       - media
 
@@ -48,13 +131,17 @@ services:
       - ${DATA_ROOT:-/volume1/data}/media:/data/media:ro
       - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents:ro
     depends_on:
-      - qbittorrent
-      - jellyfin
+      qbittorrent:
+        condition: service_healthy
+      jellyfin:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
     networks:
       - media
 
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
     profiles:
       - ai
     restart: unless-stopped
