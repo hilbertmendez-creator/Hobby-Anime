@@ -31,6 +31,7 @@ def run_verification(
         settings.qbt_password,
         settings.qbt_save_path,
         settings.qbt_category,
+        move_timeout_seconds=settings.qbt_move_timeout_seconds,
     )
     inspector = inspector or FfprobeInspector(
         settings.ffprobe_path,
@@ -41,7 +42,7 @@ def run_verification(
     result = VerificationRunResult(discovered=len(downloads))
 
     for download in downloads:
-        if database.verification_status(download.torrent_hash) in {"verified", "rejected"}:
+        if not database.claim_verification(download):
             result.skipped += 1
             continue
         try:

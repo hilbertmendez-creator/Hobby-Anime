@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +19,11 @@ class QBittorrentGateway:
         save_path: str,
         category: str,
         client: Any | None = None,
+        move_timeout_seconds: int = 300,
     ) -> None:
         self.save_path = save_path
         self.category = category
+        self.move_timeout_seconds = move_timeout_seconds
         self.client = client or qbittorrentapi.Client(
             host=host,
             port=port,
@@ -41,7 +44,7 @@ class QBittorrentGateway:
             save_path=self.save_path,
             category=self.category or None,
         )
-        if str(result).strip().lower() not in {"ok.", "ok"}:
+        if not _add_succeeded(result):
             raise RuntimeError(f"qBittorrent rejected the download: {result}")
 
     def completed(self) -> list[TorrentDownload]:
@@ -71,6 +74,7 @@ class QBittorrentGateway:
             location=verified_path,
             torrent_hashes=torrent_hash,
         )
+        self._wait_for_location(torrent_hash, verified_path)
         self.client.torrents_set_category(
             category=verified_category,
             torrent_hashes=torrent_hash,
@@ -95,8 +99,37 @@ class QBittorrentGateway:
                 save_path=save_path,
             )
 
+    def _wait_for_location(self, torrent_hash: str, verified_path: str) -> None:
+        deadline = time.monotonic() + self.move_timeout_seconds
+        while True:
+            torrents = self.client.torrents_info(torrent_hashes=torrent_hash)
+            if not torrents:
+                raise RuntimeError(
+                    f"qBittorrent no longer reports torrent {torrent_hash}"
+                )
+            torrent = torrents[0]
+            save_path = Path(str(_torrent_value(torrent, "save_path")))
+            state = str(_torrent_value(torrent, "state")).casefold()
+            if save_path == Path(verified_path) and state != "moving":
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Timed out moving torrent {torrent_hash} to {verified_path}"
+                )
+            time.sleep(0.5)
+
 
 def _torrent_value(torrent: Any, key: str) -> Any:
     if isinstance(torrent, dict):
         return torrent.get(key, "")
     return getattr(torrent, key, "")
+
+
+def _add_succeeded(result: Any) -> bool:
+    if isinstance(result, str):
+        return result.strip().lower() in {"ok.", "ok"}
+    if hasattr(result, "get"):
+        success_count = int(result.get("success_count", 0) or 0)
+        pending_count = int(result.get("pending_count", 0) or 0)
+        return success_count + pending_count > 0
+    return False

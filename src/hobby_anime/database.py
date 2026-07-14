@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS download_verification (
     torrent_hash TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     content_path TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('verified', 'rejected', 'error')),
+    status TEXT NOT NULL CHECK(status IN ('processing', 'verified', 'rejected', 'error')),
     audio_languages TEXT NOT NULL DEFAULT '[]',
     subtitle_languages TEXT NOT NULL DEFAULT '[]',
     reason TEXT,
@@ -81,6 +81,44 @@ class TrackingDatabase:
                 (torrent_hash,),
             ).fetchone()
         return str(row["status"]) if row else None
+
+    def claim_verification(
+        self,
+        download: TorrentDownload,
+        stale_after_minutes: int = 30,
+    ) -> bool:
+        now = datetime.now(UTC)
+        stale_before = (now - timedelta(minutes=stale_after_minutes)).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO download_verification (
+                    torrent_hash, name, content_path, status, audio_languages,
+                    subtitle_languages, reason, created_at, updated_at
+                ) VALUES (?, ?, ?, 'processing', '[]', '[]', ?, ?, ?)
+                ON CONFLICT(torrent_hash) DO UPDATE SET
+                    name = excluded.name,
+                    content_path = excluded.content_path,
+                    status = 'processing',
+                    reason = excluded.reason,
+                    updated_at = excluded.updated_at
+                WHERE download_verification.status = 'error'
+                   OR (
+                       download_verification.status = 'processing'
+                       AND download_verification.updated_at < ?
+                   )
+                """,
+                (
+                    download.torrent_hash,
+                    download.name,
+                    str(download.content_path),
+                    "Verification in progress",
+                    now.isoformat(),
+                    now.isoformat(),
+                    stale_before,
+                ),
+            )
+        return cursor.rowcount == 1
 
     def record_verification(
         self,

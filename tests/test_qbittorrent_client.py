@@ -6,7 +6,7 @@ from hobby_anime.qbittorrent_client import QBittorrentGateway
 
 
 class FakeClient:
-    def __init__(self, result: str = "Ok.") -> None:
+    def __init__(self, result: object = "Ok.") -> None:
         self.result = result
         self.app = SimpleNamespace(web_api_version="2.11")
         self.created_categories: list[tuple[str, str]] = []
@@ -14,6 +14,7 @@ class FakeClient:
         self.locations: list[dict[str, object]] = []
         self.categories: list[dict[str, object]] = []
         self.stopped: list[str] = []
+        self.current_save_path = "/data/torrents/quarantine"
 
     def auth_log_in(self) -> None:
         return None
@@ -24,7 +25,7 @@ class FakeClient:
     def torrents_create_category(self, name: str, save_path: str) -> None:
         self.created_categories.append((name, save_path))
 
-    def torrents_add(self, **kwargs: object) -> str:
+    def torrents_add(self, **kwargs: object) -> object:
         self.added.append(kwargs)
         return self.result
 
@@ -34,11 +35,14 @@ class FakeClient:
                 "hash": "abc123",
                 "name": "Episode",
                 "content_path": "/data/torrents/quarantine/episode.mkv",
+                "save_path": self.current_save_path,
+                "state": "uploading",
             }
         ]
 
     def torrents_set_location(self, **kwargs: object) -> None:
         self.locations.append(kwargs)
+        self.current_save_path = str(kwargs["location"])
 
     def torrents_set_category(self, **kwargs: object) -> None:
         self.categories.append(kwargs)
@@ -70,6 +74,30 @@ def test_gateway_rejects_unexpected_response() -> None:
 
     with pytest.raises(RuntimeError):
         gateway.add("magnet:?xt=example")
+
+
+def test_gateway_accepts_modern_add_metadata() -> None:
+    client = FakeClient(
+        {
+            "success_count": 1,
+            "pending_count": 0,
+            "failure_count": 0,
+            "added_torrent_ids": ["abc123"],
+        }
+    )
+    gateway = QBittorrentGateway(
+        "host",
+        8080,
+        "user",
+        "pass",
+        "/data/torrents/quarantine",
+        "anime",
+        client,
+    )
+
+    gateway.add("magnet:?xt=example")
+
+    assert len(client.added) == 1
 
 
 def test_gateway_lists_and_classifies_completed_downloads() -> None:

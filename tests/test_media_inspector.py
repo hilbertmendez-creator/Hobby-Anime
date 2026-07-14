@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from hobby_anime.media_inspector import FfprobeInspector
 
 
@@ -101,6 +103,28 @@ def test_requires_every_video_in_batch_to_pass(tmp_path: Path) -> None:
     assert "episode-2.mkv" in result.reason
 
 
+def test_rejects_forced_spanish_subtitle_without_title(tmp_path: Path) -> None:
+    video = tmp_path / "forced.mkv"
+    video.touch()
+    runner = FakeRunner(
+        [
+            {
+                "streams": [
+                    {
+                        "codec_type": "subtitle",
+                        "tags": {"language": "spa"},
+                        "disposition": {"forced": 1},
+                    }
+                ]
+            }
+        ]
+    )
+
+    result = FfprobeInspector(runner=runner).inspect(video)
+
+    assert result.accepted is False
+
+
 def test_accepts_external_spanish_subtitle(tmp_path: Path) -> None:
     video = tmp_path / "episode.mkv"
     video.touch()
@@ -149,3 +173,14 @@ def test_rejects_mislabeled_external_subtitle(tmp_path: Path) -> None:
     result = FfprobeInspector(runner=runner).inspect(video)
 
     assert result.accepted is False
+
+
+def test_rejects_video_symlink_escaping_quarantine(tmp_path: Path) -> None:
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    outside = tmp_path / "outside.mkv"
+    outside.touch()
+    (quarantine / "episode.mkv").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        FfprobeInspector(runner=FakeRunner([])).inspect(quarantine)

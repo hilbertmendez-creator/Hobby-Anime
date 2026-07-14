@@ -79,13 +79,13 @@ def test_spanish_policy_uses_or_terms_and_rejects_negative_markers() -> None:
     assert [item.fingerprint for item in result] == ["1", "2"]
 
 
-def test_spanish_policy_accepts_description_magnet_or_trusted_group() -> None:
+def test_spanish_policy_accepts_category_magnet_or_trusted_group() -> None:
     items = [
         FeedItem(
             "1",
             "Show - 01 [1080p]",
             "https://example.test/show.torrent",
-            description="Subtítulos en español",
+            categories=("Subtítulos en español",),
         ),
         FeedItem(
             "2",
@@ -107,3 +107,20 @@ def test_spanish_policy_accepts_description_magnet_or_trusted_group() -> None:
     )
 
     assert [item.fingerprint for item in result] == ["1", "2", "3"]
+
+
+def test_spanish_policy_does_not_trust_free_form_description() -> None:
+    item = FeedItem(
+        "1",
+        "Documentary - 01 [1080p]",
+        "https://example.test/documentary.torrent",
+        description="A documentary about Spanish culture with English audio",
+    )
+
+    result = filter_items(
+        [item],
+        spanish_only=True,
+        spanish_language_terms=("spanish",),
+    )
+
+    assert result == []

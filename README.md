@@ -216,6 +216,7 @@ automáticamente el reporte determinista.
 | `SPANISH_TRUSTED_GROUPS` | vacío | Grupos cuya publicación implica español |
 | `QBITTORRENT_SAVE_PATH` | `/data/torrents/quarantine` | Área aislada de descarga |
 | `QBITTORRENT_VERIFIED_PATH` | `/data/torrents/verified` | Descargas verificadas |
+| `QBITTORRENT_MOVE_TIMEOUT_SECONDS` | `300` | Espera máxima para confirmar la promoción |
 | `VERIFICATION_INTERVAL_MINUTES` | `10` | Frecuencia del verificador |
 | `FFPROBE_TIMEOUT_SECONDS` | `60` | Límite por archivo inspeccionado |
 | `DAILY_HOUR` / `DAILY_MINUTE` | `3` / `0` | Hora local del agente diario |

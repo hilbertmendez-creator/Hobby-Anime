@@ -116,18 +116,17 @@ def matches_spanish_policy(
         " ".join(
             (
                 item.title,
-                item.description,
                 " ".join(item.categories),
                 _magnet_display_name(item.download_url),
             )
         )
     )
-    title = _normalized_words(item.title)
+    release_group = _release_group(item.title)
     if any(_contains_term(metadata, term) for term in negative_terms):
         return False
     if any(_contains_term(metadata, term) for term in language_terms):
         return True
-    return any(_contains_term(title, group) for group in trusted_groups)
+    return any(_contains_term(release_group, group) for group in trusted_groups)
 
 
 def _download_url(entry: Any) -> str:
@@ -177,3 +176,8 @@ def _magnet_display_name(download_url: str) -> str:
 
 def _plain_text(value: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", value))
+
+
+def _release_group(title: str) -> str:
+    match = re.match(r"^\s*\[([^\]]+)\]", title)
+    return _normalized_words(match.group(1)) if match else ""

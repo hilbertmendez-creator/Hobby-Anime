@@ -56,6 +56,28 @@ SPANISH_COMMON_WORDS = {
     "una",
     "y",
 }
+SPANISH_DISTINCTIVE_WORDS = {
+    "ahora",
+    "aquí",
+    "aunque",
+    "como",
+    "cuando",
+    "dónde",
+    "está",
+    "estoy",
+    "hacer",
+    "hasta",
+    "muy",
+    "nada",
+    "pero",
+    "porque",
+    "puede",
+    "quiero",
+    "también",
+    "tiene",
+    "todo",
+    "vamos",
+}
 
 
 class FfprobeInspector:
@@ -109,7 +131,7 @@ class FfprobeInspector:
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=codec_type:stream_tags=language,title",
+                "stream=codec_type:stream_tags=language,title:stream_disposition=forced",
                 "-of",
                 "json",
                 str(path),
@@ -134,6 +156,7 @@ class FfprobeInspector:
         for stream in streams:
             codec_type = str(stream.get("codec_type", "")).casefold()
             tags: dict[str, Any] = stream.get("tags") or {}
+            disposition: dict[str, Any] = stream.get("disposition") or {}
             language = _normalize_language(str(tags.get("language", "")))
             title = _normalize(str(tags.get("title", "")))
             if codec_type == "audio" and language:
@@ -142,6 +165,7 @@ class FfprobeInspector:
                 subtitle_languages.add(language)
                 if (
                     language in SPANISH_LANGUAGE_CODES
+                    and not bool(disposition.get("forced"))
                     and not self._is_partial_subtitle(title)
                 ):
                     full_spanish_subtitle = True
@@ -164,12 +188,18 @@ def _video_files(content_path: Path) -> list[Path]:
     if not content_path.exists():
         raise FileNotFoundError(f"Completed download path does not exist: {content_path}")
     if content_path.is_file():
+        if content_path.is_symlink():
+            raise ValueError(f"Symbolic links are not allowed in quarantine: {content_path}")
         return [content_path] if content_path.suffix.casefold() in VIDEO_EXTENSIONS else []
-    return sorted(
-        path
-        for path in content_path.rglob("*")
-        if path.is_file() and path.suffix.casefold() in VIDEO_EXTENSIONS
-    )
+    root = content_path.resolve()
+    files: list[Path] = []
+    for path in content_path.rglob("*"):
+        if not path.is_file() or path.suffix.casefold() not in VIDEO_EXTENSIONS:
+            continue
+        if path.is_symlink() or root not in path.resolve().parents:
+            raise ValueError(f"Video escapes quarantine through a symbolic link: {path}")
+        files.append(path)
+    return sorted(files)
 
 
 def _normalize_language(value: str) -> str:
@@ -184,7 +214,11 @@ def _normalize(value: str) -> str:
 def _has_spanish_sidecar(video_path: Path) -> bool:
     for suffix in SPANISH_SIDECAR_SUFFIXES:
         subtitle_path = video_path.with_name(f"{video_path.stem}{suffix}")
-        if subtitle_path.is_file() and _looks_like_spanish_subtitle(subtitle_path):
+        if (
+            subtitle_path.is_file()
+            and not subtitle_path.is_symlink()
+            and _looks_like_spanish_subtitle(subtitle_path)
+        ):
             return True
     return False
 
@@ -199,7 +233,8 @@ def _looks_like_spanish_subtitle(path: Path) -> bool:
     if len(words) < 12:
         return False
     common_count = sum(word in SPANISH_COMMON_WORDS for word in words)
+    distinctive_word = any(word in SPANISH_DISTINCTIVE_WORDS for word in words)
     distinctive_character = any(character in content.casefold() for character in "¿¡áéíóúñ")
     return common_count >= max(3, len(words) // 12) and (
-        distinctive_character or common_count >= 5
+        distinctive_character or distinctive_word
     )

@@ -77,6 +77,17 @@ def test_verification_accepts_and_rejects_completed_downloads(
     assert database.verification_status("spanish-hash") == "verified"
     assert database.verification_status("english-hash") == "rejected"
 
+    repeated = run_verification(
+        configured,
+        gateway=gateway,
+        inspector=FakeInspector(),
+        database=database,
+    )
+
+    assert repeated.skipped == 2
+    assert len(gateway.accepted) == 1
+    assert len(gateway.rejected) == 1
+
 
 def test_verification_fails_closed_outside_quarantine(
     settings: Settings,

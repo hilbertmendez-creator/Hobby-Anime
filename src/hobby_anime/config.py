@@ -13,7 +13,12 @@ def _bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _int(name: str, default: int) -> int:
@@ -76,6 +81,8 @@ class Settings:
     spanish_trusted_groups: tuple[str, ...] = ()
     spanish_subtitle_exclude_terms: tuple[str, ...] = (
         "forced",
+        "forzado",
+        "forzados",
         "signs",
         "songs",
         "carteles",
@@ -87,6 +94,7 @@ class Settings:
     verification_interval_minutes: int = 10
     ffprobe_path: str = "ffprobe"
     ffprobe_timeout_seconds: int = 60
+    qbt_move_timeout_seconds: int = 300
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -131,7 +139,7 @@ class Settings:
             spanish_trusted_groups=_csv("SPANISH_TRUSTED_GROUPS"),
             spanish_subtitle_exclude_terms=_csv(
                 "SPANISH_SUBTITLE_EXCLUDE_TERMS",
-                "forced,signs,songs,carteles,canciones",
+                "forced,forzado,forzados,signs,songs,carteles,canciones",
             ),
             qbt_verified_path=os.getenv(
                 "QBITTORRENT_VERIFIED_PATH",
@@ -148,6 +156,7 @@ class Settings:
             verification_interval_minutes=_int("VERIFICATION_INTERVAL_MINUTES", 10),
             ffprobe_path=os.getenv("FFPROBE_PATH", "ffprobe"),
             ffprobe_timeout_seconds=_int("FFPROBE_TIMEOUT_SECONDS", 60),
+            qbt_move_timeout_seconds=_int("QBITTORRENT_MOVE_TIMEOUT_SECONDS", 300),
         )
 
     def validate_daily(self) -> None:
@@ -179,3 +188,5 @@ class Settings:
             raise ValueError("VERIFICATION_INTERVAL_MINUTES must be at least 1")
         if self.ffprobe_timeout_seconds < 1:
             raise ValueError("FFPROBE_TIMEOUT_SECONDS must be at least 1")
+        if self.qbt_move_timeout_seconds < 1:
+            raise ValueError("QBITTORRENT_MOVE_TIMEOUT_SECONDS must be at least 1")
