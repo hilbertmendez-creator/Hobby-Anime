@@ -1,0 +1,67 @@
+name: hobby-anime
+
+services:
+  qbittorrent:
+    image: ghcr.io/linuxserver/qbittorrent:latest
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      WEBUI_PORT: 8080
+      TORRENTING_PORT: 6881
+    volumes:
+      - ${QBITTORRENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/qbittorrent}:/config
+      - ${DATA_ROOT:-/volume1/data}:/data
+    ports:
+      - ${QBITTORRENT_WEB_PORT:-8080}:8080
+      - ${QBITTORRENT_PEER_PORT:-6881}:6881
+      - ${QBITTORRENT_PEER_PORT:-6881}:6881/udp
+    networks:
+      - media
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    user: ${PUID:-1000}:${PGID:-1000}
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${JELLYFIN_CONFIG_ROOT:-/volume1/docker/hobby-anime/jellyfin/config}:/config
+      - ${JELLYFIN_CACHE_ROOT:-/volume1/docker/hobby-anime/jellyfin/cache}:/cache
+      - ${DATA_ROOT:-/volume1/data}/media:/media:ro
+    ports:
+      - ${JELLYFIN_WEB_PORT:-8096}:8096
+    networks:
+      - media
+
+  hobby-anime:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    user: ${PUID:-1000}:${PGID:-1000}
+    env_file:
+      - .env
+    volumes:
+      - ${AGENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/agent}:/config
+      - ${DATA_ROOT:-/volume1/data}/media:/data/media:ro
+    depends_on:
+      - qbittorrent
+      - jellyfin
+    networks:
+      - media
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ai
+    restart: unless-stopped
+    volumes:
+      - ${OLLAMA_CONFIG_ROOT:-/volume1/docker/hobby-anime/ollama}:/root/.ollama
+    networks:
+      - media
+
+networks:
+  media:
+    driver: bridge
