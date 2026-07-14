@@ -95,6 +95,27 @@ class Settings:
     ffprobe_path: str = "ffprobe"
     ffprobe_timeout_seconds: int = 60
     qbt_move_timeout_seconds: int = 300
+    qbt_verify_categories: tuple[str, ...] = ("hobby-anime",)
+    sonarr_enabled: bool = False
+    sonarr_url: str = "http://sonarr:8989"
+    sonarr_api_key: str = ""
+    sonarr_import_after_verify: bool = True
+    sonarr_verified_root: Path = Path("/data/torrents/verified")
+    sonarr_media_root: Path = Path("/data/media/anime")
+    sonarr_import_timeout_seconds: int = 600
+    sonarr_poll_seconds: int = 2
+    prowlarr_enabled: bool = False
+    prowlarr_url: str = "http://prowlarr:9696"
+    prowlarr_api_key: str = ""
+    bazarr_enabled: bool = False
+    bazarr_url: str = "http://bazarr:6767"
+    bazarr_api_key: str = ""
+    notify_on_verification: bool = True
+    notify_on_import: bool = True
+    notify_on_daily: bool = True
+    import_retry_interval_minutes: int = 30
+    minimum_free_space_gb: int = 0
+    rss_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -157,6 +178,43 @@ class Settings:
             ffprobe_path=os.getenv("FFPROBE_PATH", "ffprobe"),
             ffprobe_timeout_seconds=_int("FFPROBE_TIMEOUT_SECONDS", 60),
             qbt_move_timeout_seconds=_int("QBITTORRENT_MOVE_TIMEOUT_SECONDS", 300),
+            qbt_verify_categories=_csv(
+                "QBITTORRENT_VERIFY_CATEGORIES",
+                os.getenv("QBITTORRENT_CATEGORY", "hobby-anime"),
+            ),
+            sonarr_enabled=_bool("SONARR_ENABLED", False),
+            sonarr_url=os.getenv("SONARR_URL", "http://sonarr:8989").rstrip("/"),
+            sonarr_api_key=os.getenv("SONARR_API_KEY", ""),
+            sonarr_import_after_verify=_bool("SONARR_IMPORT_AFTER_VERIFY", True),
+            sonarr_verified_root=Path(
+                os.getenv("SONARR_VERIFIED_ROOT", "/data/torrents/verified")
+            ),
+            sonarr_media_root=Path(
+                os.getenv("SONARR_MEDIA_ROOT", "/data/media/anime")
+            ),
+            sonarr_import_timeout_seconds=_int(
+                "SONARR_IMPORT_TIMEOUT_SECONDS",
+                600,
+            ),
+            sonarr_poll_seconds=_int("SONARR_POLL_SECONDS", 2),
+            prowlarr_enabled=_bool("PROWLARR_ENABLED", False),
+            prowlarr_url=os.getenv(
+                "PROWLARR_URL",
+                "http://prowlarr:9696",
+            ).rstrip("/"),
+            prowlarr_api_key=os.getenv("PROWLARR_API_KEY", ""),
+            bazarr_enabled=_bool("BAZARR_ENABLED", False),
+            bazarr_url=os.getenv("BAZARR_URL", "http://bazarr:6767").rstrip("/"),
+            bazarr_api_key=os.getenv("BAZARR_API_KEY", ""),
+            notify_on_verification=_bool("NOTIFY_ON_VERIFICATION", True),
+            notify_on_import=_bool("NOTIFY_ON_IMPORT", True),
+            notify_on_daily=_bool("NOTIFY_ON_DAILY", True),
+            import_retry_interval_minutes=_int(
+                "IMPORT_RETRY_INTERVAL_MINUTES",
+                30,
+            ),
+            minimum_free_space_gb=_int("MINIMUM_FREE_SPACE_GB", 100),
+            rss_enabled=_bool("RSS_ENABLED", True),
         )
 
     def validate_daily(self) -> None:
@@ -190,3 +248,22 @@ class Settings:
             raise ValueError("FFPROBE_TIMEOUT_SECONDS must be at least 1")
         if self.qbt_move_timeout_seconds < 1:
             raise ValueError("QBITTORRENT_MOVE_TIMEOUT_SECONDS must be at least 1")
+        if self.import_retry_interval_minutes < 1:
+            raise ValueError("IMPORT_RETRY_INTERVAL_MINUTES must be at least 1")
+        if self.sonarr_import_timeout_seconds < 1 or self.sonarr_poll_seconds < 1:
+            raise ValueError("Sonarr import and poll timeouts must be at least 1")
+        if self.sonarr_enabled and not self.sonarr_api_key:
+            raise ValueError("SONARR_API_KEY is required when SONARR_ENABLED is true")
+        if (
+            self.sonarr_enabled
+            and Path(self.qbt_verified_path) != self.sonarr_verified_root
+        ):
+            raise ValueError(
+                "QBITTORRENT_VERIFIED_PATH and SONARR_VERIFIED_ROOT must match"
+            )
+        if self.prowlarr_enabled and not self.prowlarr_api_key:
+            raise ValueError("PROWLARR_API_KEY is required when PROWLARR_ENABLED is true")
+        if self.bazarr_enabled and not self.bazarr_api_key:
+            raise ValueError("BAZARR_API_KEY is required when BAZARR_ENABLED is true")
+        if self.minimum_free_space_gb < 0:
+            raise ValueError("MINIMUM_FREE_SPACE_GB cannot be negative")

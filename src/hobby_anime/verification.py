@@ -5,9 +5,12 @@ from pathlib import Path
 
 from hobby_anime.config import Settings
 from hobby_anime.database import TrackingDatabase
+from hobby_anime.library_import import run_pending_imports
 from hobby_anime.media_inspector import FfprobeInspector
 from hobby_anime.models import VerificationRunResult
+from hobby_anime.notifications import Notifier
 from hobby_anime.qbittorrent_client import QBittorrentGateway
+from hobby_anime.sonarr_client import SonarrClient
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +21,8 @@ def run_verification(
     gateway: QBittorrentGateway | None = None,
     inspector: FfprobeInspector | None = None,
     database: TrackingDatabase | None = None,
+    sonarr_client: SonarrClient | None = None,
+    notifier: Notifier | None = None,
 ) -> VerificationRunResult:
     if not settings.qbt_password:
         raise ValueError("QBITTORRENT_PASSWORD is required")
@@ -38,7 +43,7 @@ def run_verification(
         settings.spanish_subtitle_exclude_terms,
         settings.ffprobe_timeout_seconds,
     )
-    downloads = gateway.completed()
+    downloads = gateway.completed(settings.qbt_verify_categories)
     result = VerificationRunResult(discovered=len(downloads))
 
     for download in downloads:
@@ -49,14 +54,24 @@ def run_verification(
             _ensure_quarantine_path(download.content_path, Path(settings.qbt_save_path))
             inspection = inspector.inspect(download.content_path)
             if inspection.accepted:
-                gateway.accept(
+                promoted = gateway.accept(
                     download.torrent_hash,
                     settings.qbt_verified_path,
                     settings.qbt_verified_category,
                 )
-                database.record_verification(download, "verified", inspection)
+                database.record_verification(promoted, "verified", inspection)
                 result.verified += 1
                 LOGGER.info("Spanish media verified: %s", download.name)
+                if settings.sonarr_enabled and settings.sonarr_import_after_verify:
+                    try:
+                        database.queue_import(promoted)
+                    except Exception as exc:
+                        result.import_failed += 1
+                        result.errors.append(f"{download.name}: {exc}")
+                        LOGGER.exception(
+                            "Could not queue verified download for Sonarr: %s",
+                            download.name,
+                        )
             else:
                 gateway.reject(download.torrent_hash, settings.qbt_rejected_category)
                 database.record_verification(download, "rejected", inspection)
@@ -72,11 +87,45 @@ def run_verification(
             result.errors.append(f"{download.name}: {exc}")
             LOGGER.exception("Could not verify completed download: %s", download.name)
 
+    if settings.notify_on_verification and (
+        result.verified or result.rejected or result.failed
+    ):
+        notifier = notifier or Notifier(
+            settings.webhook_url,
+            settings.telegram_bot_token,
+            settings.telegram_chat_id,
+            settings.request_timeout_seconds,
+        )
+        notifier.send(
+            "\n".join(
+                (
+                    "Hobby-Anime verification report",
+                    f"Verified: {result.verified}",
+                    f"Rejected: {result.rejected}",
+                    f"Failed: {result.failed}",
+                    *result.errors[:10],
+                )
+            )
+        )
+
+    import_result = run_pending_imports(
+        settings,
+        client=sonarr_client,
+        database=database,
+        notifier=notifier,
+    )
+    result.imported = import_result.imported
+    result.import_failed += import_result.failed
+    result.errors.extend(import_result.errors)
+
     LOGGER.info(
-        "Verification completed: discovered=%d verified=%d rejected=%d skipped=%d failed=%d",
+        "Verification completed: discovered=%d verified=%d rejected=%d imported=%d "
+        "import_failed=%d skipped=%d failed=%d",
         result.discovered,
         result.verified,
         result.rejected,
+        result.imported,
+        result.import_failed,
         result.skipped,
         result.failed,
     )

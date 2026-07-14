@@ -34,7 +34,7 @@ class FakeClient:
             {
                 "hash": "abc123",
                 "name": "Episode",
-                "content_path": "/data/torrents/quarantine/episode.mkv",
+                "content_path": f"{self.current_save_path}/episode.mkv",
                 "save_path": self.current_save_path,
                 "state": "uploading",
             }
@@ -112,12 +112,13 @@ def test_gateway_lists_and_classifies_completed_downloads() -> None:
         client,
     )
 
-    downloads = gateway.completed()
-    gateway.accept("abc123", "/data/torrents/verified", "anime-verified")
+    downloads = gateway.completed(("anime", "sonarr"))
+    promoted = gateway.accept("abc123", "/data/torrents/verified", "anime-verified")
     gateway.reject("def456", "anime-rejected")
 
     assert downloads[0].torrent_hash == "abc123"
     assert downloads[0].content_path.name == "episode.mkv"
+    assert str(promoted.content_path) == client.current_save_path + "/episode.mkv"
     assert client.locations[0]["location"] == "/data/torrents/verified"
     assert client.categories[0]["category"] == "anime-verified"
     assert client.stopped == ["def456"]

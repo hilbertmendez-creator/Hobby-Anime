@@ -1,4 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from hobby_anime.config import Settings
 from hobby_anime.daily import run_daily
@@ -52,3 +56,31 @@ def test_daily_dry_run_does_not_enqueue(settings: Settings) -> None:
     assert result.matched == 1
     assert result.skipped == 1
     assert gateway.urls == []
+
+
+def test_daily_blocks_download_when_storage_is_low(
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    configured = replace(
+        settings,
+        qbt_save_path=str(quarantine),
+        minimum_free_space_gb=100,
+    )
+    monkeypatch.setattr(
+        "hobby_anime.daily.shutil.disk_usage",
+        lambda _: type("Usage", (), {"free": 10 * 1024**3})(),
+    )
+
+    with pytest.raises(RuntimeError, match="Insufficient free space"):
+        run_daily(configured, reader=FakeReader([]), gateway=FakeGateway())
+
+
+def test_daily_can_be_disabled_for_sonarr_only_mode(settings: Settings) -> None:
+    result = run_daily(replace(settings, rss_enabled=False))
+
+    assert result.discovered == 0
+    assert result.added == 0

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from hobby_anime.anilist import AniListClient
 from hobby_anime.config import Settings
 from hobby_anime.library import audit_library
+from hobby_anime.models import LibraryItem
 from hobby_anime.notifications import Notifier
 from hobby_anime.recommender import (
     OllamaRecommender,
     build_fallback_report,
     mark_library_matches,
 )
+from hobby_anime.sonarr_client import SonarrClient
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,8 +25,19 @@ def run_monthly(
     anilist_client: AniListClient | None = None,
     notifier: Notifier | None = None,
     recommender: OllamaRecommender | None = None,
+    sonarr_client: SonarrClient | None = None,
 ) -> str:
     library = audit_library(settings.media_path)
+    upcoming: list[dict[str, object]] = []
+    if settings.sonarr_enabled:
+        sonarr_client = sonarr_client or SonarrClient(
+            settings.sonarr_url,
+            settings.sonarr_api_key,
+            settings.request_timeout_seconds,
+        )
+        library = _merge_sonarr_library(library, sonarr_client.series())
+        now = datetime.now(UTC)
+        upcoming = sonarr_client.calendar(now, now + timedelta(days=30))
     anilist_client = anilist_client or AniListClient(
         settings.anilist_url,
         settings.request_timeout_seconds,
@@ -42,6 +57,7 @@ def run_monthly(
             report = build_fallback_report(library, seasonal_media)
     else:
         report = build_fallback_report(library, seasonal_media)
+    report = _append_calendar(report, upcoming)
 
     notifier = notifier or Notifier(
         settings.webhook_url,
@@ -57,3 +73,38 @@ def run_monthly(
         ",".join(destinations) or "logs",
     )
     return report
+
+
+def _merge_sonarr_library(
+    library: list[LibraryItem],
+    series: list[dict[str, object]],
+) -> list[LibraryItem]:
+    by_path = {item.path: item for item in library}
+    for item in series:
+        statistics = item.get("statistics") or {}
+        if not isinstance(statistics, dict):
+            continue
+        file_count = int(statistics.get("episodeFileCount") or 0)
+        raw_path = str(item.get("path") or "").strip()
+        path = Path(raw_path)
+        title = str(item.get("title") or "").strip()
+        if file_count and title and raw_path and path not in by_path:
+            by_path[path] = LibraryItem(title, path, file_count)
+    return sorted(by_path.values(), key=lambda item: item.title.casefold())
+
+
+def _append_calendar(report: str, upcoming: list[dict[str, object]]) -> str:
+    if not upcoming:
+        return report
+    lines = ["", "## Próximos episodios (Sonarr)"]
+    for episode in upcoming[:10]:
+        series = episode.get("series") or {}
+        series_title = (
+            str(series.get("title", ""))
+            if isinstance(series, dict)
+            else ""
+        )
+        title = str(episode.get("title") or "Episodio")
+        air_date = str(episode.get("airDateUtc") or "fecha desconocida")
+        lines.append(f"- {series_title}: {title} — {air_date}")
+    return f"{report.rstrip()}\n" + "\n".join(lines)

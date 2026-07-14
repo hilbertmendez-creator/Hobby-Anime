@@ -67,6 +67,17 @@ class VerificationRunResult:
     discovered: int = 0
     verified: int = 0
     rejected: int = 0
+    imported: int = 0
+    import_failed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ImportRunResult:
+    discovered: int = 0
+    imported: int = 0
     skipped: int = 0
     failed: int = 0
     errors: list[str] = field(default_factory=list)

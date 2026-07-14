@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import urlsplit, urlunsplit
 
 from hobby_anime.models import FeedItem, MediaInspection, TorrentDownload
 
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_tracking (
@@ -38,6 +41,21 @@ CREATE TABLE IF NOT EXISTS download_verification (
 );
 CREATE INDEX IF NOT EXISTS idx_download_verification_status
     ON download_verification(status);
+CREATE TABLE IF NOT EXISTS library_import (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    torrent_hash TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    content_path TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(
+        status IN ('pending', 'processing', 'queued', 'imported', 'error')
+    ),
+    command_id INTEGER,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_library_import_status
+    ON library_import(status);
 """
 
 
@@ -49,6 +67,7 @@ class TrackingDatabase:
     def connect(self) -> Iterator[sqlite3.Connection]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path)
+        os.chmod(self.path, 0o600)
         connection.row_factory = sqlite3.Row
         try:
             yield connection
@@ -58,7 +77,41 @@ class TrackingDatabase:
 
     def initialize(self) -> None:
         with self.connect() as connection:
+            verification_schema = connection.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'download_verification'
+                """
+            ).fetchone()
+            needs_verification_migration = bool(
+                verification_schema
+                and "processing" not in str(verification_schema["sql"])
+            )
+            if needs_verification_migration:
+                connection.execute(
+                    "ALTER TABLE download_verification RENAME TO download_verification_v1"
+                )
+                connection.execute(
+                    "DROP INDEX IF EXISTS idx_download_verification_status"
+                )
             connection.executescript(SCHEMA)
+            if needs_verification_migration:
+                connection.execute(
+                    """
+                    INSERT INTO download_verification (
+                        id, torrent_hash, name, content_path, status,
+                        audio_languages, subtitle_languages, reason,
+                        created_at, updated_at
+                    )
+                    SELECT
+                        id, torrent_hash, name, content_path, status,
+                        audio_languages, subtitle_languages, reason,
+                        created_at, updated_at
+                    FROM download_verification_v1
+                    """
+                )
+                connection.execute("DROP TABLE download_verification_v1")
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def was_added(self, fingerprint: str) -> bool:
         with self.connect() as connection:
@@ -162,6 +215,132 @@ class TrackingDatabase:
                 ),
             )
 
+    def queue_import(self, download: TorrentDownload) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO library_import (
+                    torrent_hash, name, content_path, status, command_id,
+                    error_message, created_at, updated_at
+                ) VALUES (?, ?, ?, 'pending', NULL, NULL, ?, ?)
+                ON CONFLICT(torrent_hash) DO UPDATE SET
+                    name = excluded.name,
+                    content_path = excluded.content_path,
+                    updated_at = excluded.updated_at
+                WHERE library_import.status != 'imported'
+                """,
+                (
+                    download.torrent_hash,
+                    download.name,
+                    str(download.content_path),
+                    now,
+                    now,
+                ),
+            )
+
+    def pending_imports(self) -> list[TorrentDownload]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT torrent_hash, name, content_path
+                FROM library_import
+                WHERE status IN ('pending', 'error', 'processing', 'queued')
+                ORDER BY updated_at
+                """
+            ).fetchall()
+        return [
+            TorrentDownload(
+                torrent_hash=str(row["torrent_hash"]),
+                name=str(row["name"]),
+                content_path=Path(str(row["content_path"])),
+            )
+            for row in rows
+        ]
+
+    def claim_import(
+        self,
+        download: TorrentDownload,
+        stale_after_minutes: int = 30,
+    ) -> bool:
+        now = datetime.now(UTC)
+        stale_before = (now - timedelta(minutes=stale_after_minutes)).isoformat()
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE library_import
+                SET status = 'processing', error_message = NULL, updated_at = ?
+                WHERE torrent_hash = ?
+                  AND (
+                      status IN ('pending', 'error', 'queued')
+                      OR (status = 'processing' AND updated_at < ?)
+                  )
+                """,
+                (now.isoformat(), download.torrent_hash, stale_before),
+            )
+        return cursor.rowcount == 1
+
+    def record_import(
+        self,
+        torrent_hash: str,
+        status: str,
+        command_id: int | None = None,
+        error_message: str = "",
+    ) -> None:
+        if status not in {"queued", "imported", "error"}:
+            raise ValueError(f"Invalid import status: {status}")
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE library_import
+                SET status = ?, command_id = ?, error_message = ?, updated_at = ?
+                WHERE torrent_hash = ?
+                """,
+                (
+                    status,
+                    command_id,
+                    error_message[:2_000] or None,
+                    datetime.now(UTC).isoformat(),
+                    torrent_hash,
+                ),
+            )
+
+    def import_command_id(self, torrent_hash: str) -> int | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT command_id FROM library_import WHERE torrent_hash = ?",
+                (torrent_hash,),
+            ).fetchone()
+        if not row or row["command_id"] is None:
+            return None
+        return int(row["command_id"])
+
+    def import_status(self, torrent_hash: str) -> str | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT status FROM library_import WHERE torrent_hash = ?",
+                (torrent_hash,),
+            ).fetchone()
+        return str(row["status"]) if row else None
+
+    def pipeline_summary(self) -> dict[str, dict[str, int]]:
+        tables = {
+            "rss": "media_tracking",
+            "verification": "download_verification",
+            "import": "library_import",
+        }
+        summary: dict[str, dict[str, int]] = {}
+        with self.connect() as connection:
+            for name, table in tables.items():
+                rows = connection.execute(
+                    f"SELECT status, COUNT(*) AS total FROM {table} GROUP BY status"
+                ).fetchall()
+                summary[name] = {
+                    str(row["status"]): int(row["total"])
+                    for row in rows
+                }
+        return summary
+
     def _upsert(self, item: FeedItem, status: str, error_message: str | None) -> None:
         now = datetime.now(UTC).isoformat()
         published_at = item.published_at.isoformat() if item.published_at else None
@@ -183,7 +362,7 @@ class TrackingDatabase:
                 (
                     item.fingerprint,
                     item.title,
-                    item.download_url,
+                    _safe_download_reference(item.download_url),
                     published_at,
                     status,
                     error_message,
@@ -191,3 +370,10 @@ class TrackingDatabase:
                     now,
                 ),
             )
+
+
+def _safe_download_reference(download_url: str) -> str:
+    if download_url.startswith("magnet:"):
+        return "magnet:[redacted]"
+    parsed = urlsplit(download_url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))

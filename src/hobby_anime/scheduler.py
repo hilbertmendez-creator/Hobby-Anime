@@ -7,6 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from hobby_anime.config import Settings
 from hobby_anime.daily import run_daily
+from hobby_anime.library_import import run_pending_imports
 from hobby_anime.monthly import run_monthly
 from hobby_anime.verification import run_verification
 
@@ -17,17 +18,18 @@ def start_scheduler(settings: Settings) -> None:
     settings.validate_schedule()
     timezone = ZoneInfo(settings.timezone)
     scheduler = BlockingScheduler(timezone=timezone)
-    scheduler.add_job(
-        run_daily,
-        "cron",
-        kwargs={"settings": settings},
-        hour=settings.daily_hour,
-        minute=settings.daily_minute,
-        id="daily-rss-agent",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=3_600,
-    )
+    if settings.rss_enabled:
+        scheduler.add_job(
+            run_daily,
+            "cron",
+            kwargs={"settings": settings},
+            hour=settings.daily_hour,
+            minute=settings.daily_minute,
+            id="daily-rss-agent",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3_600,
+        )
     scheduler.add_job(
         run_verification,
         "interval",
@@ -37,6 +39,16 @@ def start_scheduler(settings: Settings) -> None:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=600,
+    )
+    scheduler.add_job(
+        run_pending_imports,
+        "interval",
+        kwargs={"settings": settings},
+        minutes=settings.import_retry_interval_minutes,
+        id="sonarr-import-retry",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1_800,
     )
     scheduler.add_job(
         run_monthly,
