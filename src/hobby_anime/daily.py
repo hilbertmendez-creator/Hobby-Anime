@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import shutil
+from pathlib import Path
 
 from hobby_anime.config import Settings
 from hobby_anime.database import TrackingDatabase
 from hobby_anime.models import DailyRunResult
+from hobby_anime.notifications import Notifier
 from hobby_anime.qbittorrent_client import QBittorrentGateway
 from hobby_anime.rss import RssReader, filter_items
 
@@ -18,11 +21,25 @@ def run_daily(
     reader: RssReader | None = None,
     gateway: QBittorrentGateway | None = None,
     database: TrackingDatabase | None = None,
+    notifier: Notifier | None = None,
 ) -> DailyRunResult:
+    if not settings.rss_enabled:
+        LOGGER.info("Daily RSS agent is disabled")
+        return DailyRunResult()
     if not settings.rss_urls:
         raise ValueError("RSS_URLS is required")
     if not dry_run and not settings.qbt_password:
         raise ValueError("QBITTORRENT_PASSWORD is required")
+    if not dry_run and settings.minimum_free_space_gb:
+        quarantine = Path(settings.qbt_save_path)
+        if not quarantine.is_dir():
+            raise FileNotFoundError(f"Quarantine directory does not exist: {quarantine}")
+        free_gb = shutil.disk_usage(quarantine).free / (1024**3)
+        if free_gb < settings.minimum_free_space_gb:
+            raise RuntimeError(
+                f"Insufficient free space: {free_gb:.1f} GiB available, "
+                f"{settings.minimum_free_space_gb} GiB required"
+            )
 
     database = database or TrackingDatabase(settings.database_path)
     database.initialize()
@@ -34,6 +51,10 @@ def run_daily(
         groups=settings.rss_groups,
         include_terms=settings.rss_include_terms,
         exclude_terms=settings.rss_exclude_terms,
+        spanish_only=settings.spanish_only,
+        spanish_language_terms=settings.spanish_language_terms,
+        spanish_negative_terms=settings.spanish_negative_terms,
+        spanish_trusted_groups=settings.spanish_trusted_groups,
         max_age_hours=settings.rss_max_age_hours,
     )
     result = DailyRunResult(discovered=len(discovered), matched=len(matches))
@@ -77,4 +98,21 @@ def run_daily(
         result.skipped,
         result.failed,
     )
+    if settings.notify_on_daily and (result.added or result.failed):
+        notifier = notifier or Notifier(
+            settings.webhook_url,
+            settings.telegram_bot_token,
+            settings.telegram_chat_id,
+            settings.request_timeout_seconds,
+        )
+        notifier.send(
+            "\n".join(
+                (
+                    "Hobby-Anime daily report",
+                    f"Added to quarantine: {result.added}",
+                    f"Failed: {result.failed}",
+                    *result.errors[:10],
+                )
+            )
+        )
     return result

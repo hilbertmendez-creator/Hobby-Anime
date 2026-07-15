@@ -10,26 +10,37 @@ con Docker Compose y no requiere servicios de pago.
 ## Arquitectura
 
 ```text
-RSS autorizado ──> agente diario ──> qBittorrent ──> /volume1/data/torrents
-                       │
-                       └──> SQLite (/config/hobby-anime.db)
+Prowlarr ──> Sonarr ───────────────┐
+RSS autorizado ──> filtro español ─┴─> qBittorrent ──> torrents/quarantine
+                         │                                  │
+                         └──> SQLite          ffprobe <─────┘
+                                                     │
+                                         torrents/verified ──> Sonarr
+                                                                  │ hardlink
+                                                                  ▼
+                                                           media/anime
 
 /volume1/data/media ──> auditoría mensual ──> AniList ──> Ollama opcional
            │                                      │
-           └────────────> Jellyfin                 └──> Telegram/webhook
+           ├────────────> Jellyfin                 └──> Telegram/webhook
+           └────────────> Bazarr
 ```
 
-El directorio `/volume1/data` se monta completo en qBittorrent. Así,
-`torrents/` y `media/` pertenecen al mismo sistema de archivos y un organizador
-puede crear hardlinks sin duplicar datos. Esta versión no mueve ni renombra
-automáticamente una descarga terminada: evita copias y deja preparada la
-estructura para crear el hardlink manualmente o integrar un organizador
-posteriormente.
+`torrents/` y `media/` viven bajo `/volume1/data`. Sonarr monta esa raíz con la
+misma ruta interna y crea hardlinks sin duplicar datos. Hobby-Anime mantiene la
+puerta de idioma: Sonarr solo recibe la orden de importación después de que
+`ffprobe` haya aprobado todos los videos.
 
 ## Funcionalidad incluida
 
 - Filtrado RSS por resolución, grupo, términos requeridos, términos excluidos y
   antigüedad.
+- Política española obligatoria con términos alternativos y grupos confiables.
+- Cuarentena y validación de audio/subtítulos españoles mediante `ffprobe`.
+- Rechazo seguro de pistas parciales como `forced`, `signs` o `songs`.
+- Gestión de series, calendario, búsquedas, nombres y hardlinks mediante Sonarr.
+- Fuentes centralizadas mediante Prowlarr y subtítulos post-import mediante Bazarr.
+- Reintento idempotente de imports Sonarr fallidos.
 - Inyección idempotente en qBittorrent y seguimiento de estados en SQLite.
 - Reintento de entradas que fallaron; una entrada añadida no se duplica.
 - Planificador diario y mensual mediante APScheduler.
@@ -65,6 +76,8 @@ El resultado esperado es:
 /volume1/data/
 ├── media/
 └── torrents/
+    ├── quarantine/
+    └── verified/
 ```
 
 Para comprobar que el NAS permite hardlinks:
@@ -87,7 +100,7 @@ chmod 600 .env
 
 Edita `.env`:
 
-- Ajusta `PUID`, `PGID`, `TZ` y las rutas del NAS.
+- Ajusta `PUID`, `PGID`, `TZ`, `LAN_IP` y las rutas del NAS.
 - Define uno o más feeds autorizados en `RSS_URLS`, separados por comas.
 - Configura los filtros RSS.
 - Sustituye todas las credenciales de ejemplo.
@@ -97,7 +110,7 @@ No guardes `.env` en Git; ya está ignorado.
 ### 3. Iniciar qBittorrent y Jellyfin
 
 ```bash
-docker compose up -d qbittorrent jellyfin
+docker compose up -d qbittorrent jellyfin sonarr prowlarr bazarr
 docker compose ps
 ```
 
@@ -105,6 +118,9 @@ Interfaces desde la red local:
 
 - qBittorrent: `http://IP_DEL_NAS:8080`
 - Jellyfin: `http://IP_DEL_NAS:8096`
+- Sonarr: `http://IP_DEL_NAS:8989`
+- Prowlarr: `http://IP_DEL_NAS:9696`
+- Bazarr: `http://IP_DEL_NAS:6767`
 
 Las versiones recientes de la imagen de qBittorrent imprimen una contraseña
 temporal durante el primer arranque:
@@ -117,7 +133,7 @@ En qBittorrent abre **Tools > Options**:
 
 1. Cambia la contraseña Web UI y copia el mismo valor a
    `QBITTORRENT_PASSWORD` en `.env`.
-2. Confirma que la ruta de guardado sea `/data/torrents`.
+2. Confirma que la ruta de guardado sea `/data/torrents/quarantine`.
 3. No desactives la autenticación para redes externas.
 
 En Jellyfin completa el asistente y crea una biblioteca que apunte a `/media`.
@@ -153,7 +169,30 @@ docker compose logs --since=10m hobby-anime
 ```
 
 El torrent debe aparecer con la categoría `hobby-anime` y la ruta
-`/data/torrents`.
+`/data/torrents/quarantine`.
+
+Cuando termine, ejecuta una verificación manual:
+
+```bash
+docker compose exec hobby-anime hobby-anime verify
+```
+
+El agente inspecciona todos los videos de la descarga. Si cada archivo contiene
+audio español, subtítulos españoles completos o un subtítulo externo `.es.srt`
+cuyo texto supera una comprobación conservadora de idioma, qBittorrent lo mueve
+a `/data/torrents/verified` y asigna la categoría `hobby-anime-verified`. Si no
+cumple, detiene el torrent, lo conserva en cuarentena y asigna
+`hobby-anime-rejected`.
+
+Con Sonarr habilitado, una descarga verificada se importa automáticamente en
+`/data/media/anime` usando `DownloadedEpisodesScan` y modo `copy`, que permite
+hardlinks sin interrumpir el seeding. Consulta la configuración obligatoria en
+[`docs/arr-setup.md`](docs/arr-setup.md).
+
+La validación es deliberadamente estricta: pistas sin etiqueta de idioma,
+subtítulos parciales y metadatos ambiguos se rechazan. Esto evita importar
+contenido incorrecto, aunque un archivo mal etiquetado por su publicador todavía
+puede requerir revisión humana.
 
 ### 6. Activar IA local (opcional)
 
@@ -179,12 +218,28 @@ automáticamente el reporte determinista.
 
 | Variable | Valor predeterminado | Uso |
 | --- | --- | --- |
+| `RSS_ENABLED` | `true` | Desactívalo cuando Sonarr sea la única fuente |
 | `RSS_URLS` | vacío | Feeds separados por comas; obligatorio para el agente diario |
 | `RSS_RESOLUTION` | `1080p` | Texto de resolución exigido |
 | `RSS_GROUPS` | vacío | Acepta cualquiera de los grupos indicados |
 | `RSS_INCLUDE_TERMS` | vacío | Exige todos los términos indicados |
 | `RSS_EXCLUDE_TERMS` | vacío | Descarta si coincide cualquiera |
 | `RSS_MAX_AGE_HOURS` | `72` | Evita importar todo el historial al iniciar |
+| `SPANISH_ONLY` | `true` | Exige evidencia española antes de descargar |
+| `SPANISH_LANGUAGE_TERMS` | variantes españolas | Coincidencia OR en título, descripción, categorías o magnet |
+| `SPANISH_NEGATIVE_TERMS` | `raw,...` | Rechaza candidatos incompatibles |
+| `SPANISH_TRUSTED_GROUPS` | vacío | Grupos cuya publicación implica español |
+| `QBITTORRENT_SAVE_PATH` | `/data/torrents/quarantine` | Área aislada de descarga |
+| `QBITTORRENT_VERIFIED_PATH` | `/data/torrents/verified` | Descargas verificadas |
+| `QBITTORRENT_MOVE_TIMEOUT_SECONDS` | `300` | Espera máxima para confirmar la promoción |
+| `QBITTORRENT_VERIFY_CATEGORIES` | `hobby-anime` | Categorías RSS/Sonarr sometidas a la puerta |
+| `MINIMUM_FREE_SPACE_GB` | `100` | Bloquea nuevas descargas bajo este espacio libre |
+| `SONARR_ENABLED` | `false` | Activa importación híbrida después de ffprobe |
+| `SONARR_VERIFIED_ROOT` | `/data/torrents/verified` | Raíz permitida para escaneo Sonarr |
+| `SONARR_MEDIA_ROOT` | `/data/media/anime` | Biblioteca final administrada por Sonarr |
+| `IMPORT_RETRY_INTERVAL_MINUTES` | `30` | Reintento de imports fallidos |
+| `VERIFICATION_INTERVAL_MINUTES` | `10` | Frecuencia del verificador |
+| `FFPROBE_TIMEOUT_SECONDS` | `60` | Límite por archivo inspeccionado |
 | `DAILY_HOUR` / `DAILY_MINUTE` | `3` / `0` | Hora local del agente diario |
 | `MONTHLY_DAY` / `MONTHLY_HOUR` | `1` / `9` | Ejecución mensual (día entre 1 y 28) |
 | `OLLAMA_ENABLED` | `false` | Activa el reporte con LLM local |
@@ -201,6 +256,9 @@ hobby-anime init-db
 hobby-anime audit
 hobby-anime daily --dry-run
 hobby-anime daily
+hobby-anime verify
+hobby-anime import
+hobby-anime status
 hobby-anime monthly
 hobby-anime doctor
 hobby-anime scheduler
@@ -230,10 +288,92 @@ set +a
 hobby-anime daily --dry-run
 ```
 
+## CodeGraph para Cursor
+
+El repositorio incluye `.cursor/mcp.json` para iniciar el servidor MCP de
+CodeGraph sobre el workspace activo. El índice SQLite es local y está excluido
+de Git mediante `.codegraph/.gitignore`.
+
+Instala la CLI en cada equipo de desarrollo:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Inicializa y comprueba el índice desde la raíz del repositorio:
+
+```bash
+codegraph init
+codegraph status
+codegraph query run_daily
+codegraph impact run_daily
+```
+
+Reinicia Cursor después de instalar la CLI. En **Settings > Tools & MCP** debe
+aparecer el servidor `codegraph`. La configuración utiliza
+`${workspaceFolder}`, por lo que funciona aunque el repositorio se clone en una
+ruta diferente. La telemetría está desactivada para el proceso MCP; para
+desactivarla también en invocaciones manuales:
+
+```bash
+codegraph telemetry off
+```
+
+CodeGraph mantiene el índice sincronizado mientras el servidor MCP está activo.
+Si fuera necesario reconstruirlo por completo, ejecuta `codegraph index`.
+
+## Gentle AI para Cursor
+
+El proyecto usa el preset `minimal` de Gentle AI con alcance de workspace y
+persona `neutral`. Esto añade memoria persistente mediante Engram y reglas
+didácticas sin instalar GGA, temas, permisos globales ni proveedores externos.
+La entrada `engram` convive con CodeGraph en `.cursor/mcp.json`.
+
+Instala el binario oficial en cada equipo:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh \
+  | bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Para registrar o actualizar este workspace:
+
+```bash
+GENTLE_AI_NO_SELF_UPDATE=1 gentle-ai install \
+  --agent cursor \
+  --preset minimal \
+  --persona neutral \
+  --scope workspace
+gentle-ai doctor
+```
+
+Reinicia Cursor y confirma en **Settings > Tools & MCP** que `engram` y
+`codegraph` estén activos. El diagnóstico puede indicar que Engram no responde
+cuando Cursor está cerrado, porque el servidor MCP todavía no está ejecutándose.
+Los avisos sobre GGA, Claude Code u OpenCode también son esperables con este
+preset y no afectan la integración de Cursor.
+
+Comandos útiles:
+
+```bash
+gentle-ai version
+engram version
+gentle-ai sync --dry-run
+```
+
+Gentle AI guarda su estado y respaldos en `~/.gentle-ai`; no contienen código
+del proyecto y no se confirman en este repositorio.
+
 ## Operación y respaldo
 
-- Respalda los directorios de configuración y, como mínimo,
-  `/volume1/docker/hobby-anime/agent/hobby-anime.db`.
+- Crea una copia consistente de todas las bases y configuraciones con
+  `sudo BACKUP_ROOT=/volume1/backups/hobby-anime ./scripts/backup-stack.sh`.
+- El script detiene temporalmente los servicios, protege el backup con permisos
+  restrictivos y vuelve a iniciarlos incluso si el proceso falla.
 - Actualiza imágenes de forma controlada con `docker compose pull` y luego
   `docker compose up -d --build`.
 - Revisa actividad con `docker compose logs -f hobby-anime`.

@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "args": [
+        "serve",
+        "--mcp",
+        "--path",
+        "${workspaceFolder}"
+      ],
+      "command": "codegraph",
+      "env": {
+        "CODEGRAPH_TELEMETRY": "0"
+      },
+      "type": "stdio"
+    },
+    "engram": {
+      "args": [
+        "mcp",
+        "--tools=agent"
+      ],
+      "command": "engram"
+    }
+  }
+}

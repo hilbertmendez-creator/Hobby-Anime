@@ -58,3 +58,69 @@ def test_reader_parses_torrent_download_url() -> None:
     assert result[0].title == "Public domain film [1080p]"
     assert result[0].download_url.endswith("film.torrent")
     assert result[0].published_at == datetime(2026, 7, 14, 10, tzinfo=UTC)
+
+
+def test_spanish_policy_uses_or_terms_and_rejects_negative_markers() -> None:
+    items = [
+        FeedItem("1", "Show - 01 [1080p] [Sub Español]", "magnet:?xt=1"),
+        FeedItem("2", "Show - 02 [1080p] [Castellano]", "magnet:?xt=2"),
+        FeedItem("3", "Show - 03 [1080p] [English]", "magnet:?xt=3"),
+        FeedItem("4", "Show - 04 [1080p] [RAW] [SPA]", "magnet:?xt=4"),
+        FeedItem("5", "Space Show - 05 [1080p]", "magnet:?xt=5"),
+    ]
+
+    result = filter_items(
+        items,
+        spanish_only=True,
+        spanish_language_terms=("español", "castellano", "spa"),
+        spanish_negative_terms=("raw",),
+    )
+
+    assert [item.fingerprint for item in result] == ["1", "2"]
+
+
+def test_spanish_policy_accepts_category_magnet_or_trusted_group() -> None:
+    items = [
+        FeedItem(
+            "1",
+            "Show - 01 [1080p]",
+            "https://example.test/show.torrent",
+            categories=("Subtítulos en español",),
+        ),
+        FeedItem(
+            "2",
+            "Show - 02 [1080p]",
+            "magnet:?xt=urn:btih:test&dn=Show+02+SubESP",
+        ),
+        FeedItem(
+            "3",
+            "[TrustedES] Show - 03 [1080p]",
+            "https://example.test/show-3.torrent",
+        ),
+    ]
+
+    result = filter_items(
+        items,
+        spanish_only=True,
+        spanish_language_terms=("español", "subesp"),
+        spanish_trusted_groups=("TrustedES",),
+    )
+
+    assert [item.fingerprint for item in result] == ["1", "2", "3"]
+
+
+def test_spanish_policy_does_not_trust_free_form_description() -> None:
+    item = FeedItem(
+        "1",
+        "Documentary - 01 [1080p]",
+        "https://example.test/documentary.torrent",
+        description="A documentary about Spanish culture with English audio",
+    )
+
+    result = filter_items(
+        [item],
+        spanish_only=True,
+        spanish_language_terms=("spanish",),
+    )
+
+    assert result == []

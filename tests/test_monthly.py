@@ -33,6 +33,26 @@ class FakeRecommender:
         return "# AI report"
 
 
+class FakeSonarr:
+    def series(self) -> list[dict[str, object]]:
+        return [
+            {
+                "title": "Owned Show",
+                "path": "/data/media/anime/Owned Show",
+                "statistics": {"episodeFileCount": 4},
+            }
+        ]
+
+    def calendar(self, start: object, end: object) -> list[dict[str, object]]:
+        return [
+            {
+                "title": "Episode 5",
+                "airDateUtc": "2026-07-20T10:00:00Z",
+                "series": {"title": "Owned Show"},
+            }
+        ]
+
+
 def test_monthly_uses_deterministic_report_by_default(settings: Settings) -> None:
     notifier = FakeNotifier()
 
@@ -55,3 +75,22 @@ def test_monthly_uses_local_recommender_when_enabled(settings: Settings) -> None
 
     assert report == "# AI report"
     assert notifier.report == report
+
+
+def test_monthly_includes_sonarr_catalog_and_calendar(settings: Settings) -> None:
+    configured = replace(
+        settings,
+        sonarr_enabled=True,
+        sonarr_api_key="secret",
+    )
+
+    report = run_monthly(
+        configured,
+        anilist_client=FakeAniList(),
+        notifier=FakeNotifier(),
+        sonarr_client=FakeSonarr(),
+    )
+
+    assert "Títulos locales detectados: 1" in report
+    assert "Próximos episodios (Sonarr)" in report
+    assert "Owned Show: Episode 5" in report
