@@ -130,6 +130,12 @@ services:
       - ${AGENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/agent}:/config
       - ${DATA_ROOT:-/volume1/data}/media:/data/media:ro
       - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents:ro
+    healthcheck:
+      test: ["CMD-SHELL", "hobby-anime status >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       qbittorrent:
         condition: service_healthy
