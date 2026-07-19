@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 from urllib.parse import urlsplit, urlunsplit
 
-from hobby_anime.models import FeedItem, MediaInspection, TorrentDownload
+from hobby_anime.models import FeedItem, MediaInspection, RejectedDownload, TorrentDownload
 
 SCHEMA_VERSION = 2
 
@@ -134,6 +134,32 @@ class TrackingDatabase:
                 (torrent_hash,),
             ).fetchone()
         return str(row["status"]) if row else None
+
+    def rejected_downloads(
+        self,
+        torrent_hash: str | None = None,
+    ) -> list[RejectedDownload]:
+        query = (
+            "SELECT torrent_hash, name, reason, content_path, updated_at "
+            "FROM download_verification WHERE status = 'rejected'"
+        )
+        params: tuple[str, ...] = ()
+        if torrent_hash is not None:
+            query += " AND torrent_hash = ?"
+            params = (torrent_hash,)
+        query += " ORDER BY updated_at DESC"
+        with self.connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [
+            RejectedDownload(
+                torrent_hash=str(row["torrent_hash"]),
+                name=str(row["name"]),
+                reason=str(row["reason"] or ""),
+                content_path=Path(str(row["content_path"])),
+                updated_at=str(row["updated_at"]),
+            )
+            for row in rows
+        ]
 
     def claim_verification(
         self,

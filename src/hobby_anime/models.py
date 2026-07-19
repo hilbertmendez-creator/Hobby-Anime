@@ -23,6 +23,15 @@ class TorrentDownload:
 
 
 @dataclass(frozen=True)
+class RejectedDownload:
+    torrent_hash: str
+    name: str
+    reason: str
+    content_path: Path
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class MediaInspection:
     accepted: bool
     audio_languages: tuple[str, ...] = ()

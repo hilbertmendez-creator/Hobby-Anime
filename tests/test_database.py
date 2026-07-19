@@ -84,6 +84,44 @@ def test_claim_verification_honors_explicit_stale_window(tmp_path: Path) -> None
     assert database.claim_verification(download, stale_after_minutes=10) is True
 
 
+def test_rejected_downloads_lists_only_rejected(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    database.record_verification(
+        TorrentDownload("hash-ok", "Verified show", Path("/data/torrents/verified/ok.mkv")),
+        "verified",
+        reason="Spanish subtitles verified",
+    )
+    database.record_verification(
+        TorrentDownload("hash-bad", "Rejected show", Path("/data/torrents/quarantine/bad.mkv")),
+        "rejected",
+        reason="No Spanish tracks",
+    )
+
+    downloads = database.rejected_downloads()
+
+    assert [d.torrent_hash for d in downloads] == ["hash-bad"]
+    assert downloads[0].name == "Rejected show"
+    assert downloads[0].reason == "No Spanish tracks"
+    assert downloads[0].content_path == Path("/data/torrents/quarantine/bad.mkv")
+
+
+def test_rejected_downloads_filters_by_hash(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    for index in range(2):
+        database.record_verification(
+            TorrentDownload(f"hash-{index}", f"Show {index}", Path(f"/q/{index}.mkv")),
+            "rejected",
+            reason=f"reason {index}",
+        )
+
+    downloads = database.rejected_downloads("hash-1")
+
+    assert len(downloads) == 1
+    assert downloads[0].torrent_hash == "hash-1"
+
+
 def test_claim_import_honors_explicit_stale_window(tmp_path: Path) -> None:
     database = TrackingDatabase(tmp_path / "tracking.db")
     database.initialize()
