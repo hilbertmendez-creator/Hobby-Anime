@@ -388,5 +388,11 @@ del proyecto y no se confirman en este repositorio.
   `docker compose up -d --build`.
 - Revisa actividad con `docker compose logs -f hobby-anime`.
 - Mantén los puertos publicados limitados a la LAN o detrás de una VPN.
-- Los valores `latest` facilitan el primer despliegue, pero para producción
-  estable conviene fijar cada imagen al digest validado en tu NAS.
+- `ollama` ya viene fijado a una versión estable (`0.32.1`). El resto de las
+  imágenes usan `latest` para facilitar el primer despliegue; para producción
+  estable, fijá cada una al digest validado en tu NAS. Obtené el digest actual
+  con `docker inspect --format '{{index .RepoDigests 0}}' lscr.io/linuxserver/sonarr`
+  y ponelo en `.env` mediante la variable correspondiente, por ejemplo
+  `SONARR_IMAGE=lscr.io/linuxserver/sonarr@sha256:<digest>`. Las variables
+  disponibles son `QBITTORRENT_IMAGE`, `JELLYFIN_IMAGE`, `SONARR_IMAGE`,
+  `PROWLARR_IMAGE`, `BAZARR_IMAGE` y `OLLAMA_IMAGE`.

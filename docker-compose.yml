@@ -149,7 +149,7 @@ services:
       - media
 
   ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.32.1}
     profiles:
       - ai
     restart: unless-stopped
