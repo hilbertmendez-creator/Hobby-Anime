@@ -119,6 +119,10 @@ class QBittorrentGateway:
             torrent = torrents[0]
             save_path = Path(str(_torrent_value(torrent, "save_path")))
             state = str(_torrent_value(torrent, "state")).casefold()
+            if state in {"error", "missingfiles"}:
+                raise RuntimeError(
+                    f"qBittorrent reported state '{state}' for torrent {torrent_hash}"
+                )
             if save_path == Path(verified_path) and state != "moving":
                 return _to_download(torrent)
             if time.monotonic() >= deadline:

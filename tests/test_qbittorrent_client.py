@@ -152,3 +152,25 @@ def test_accept_does_not_resume_by_default() -> None:
     gateway.accept("abc123", "/data/torrents/verified", "anime-verified")
 
     assert client.started == []
+
+
+def test_accept_raises_on_qbittorrent_error_state() -> None:
+    class ErrorClient(FakeClient):
+        def torrents_info(self, **kwargs: object) -> list[dict[str, str]]:
+            return [
+                {
+                    "hash": "abc123",
+                    "name": "Episode",
+                    "content_path": f"{self.current_save_path}/episode.mkv",
+                    "save_path": self.current_save_path,
+                    "state": "error",
+                }
+            ]
+
+    gateway = QBittorrentGateway(
+        "host", 8080, "user", "pass",
+        "/data/torrents/quarantine", "anime", ErrorClient(),
+    )
+
+    with pytest.raises(RuntimeError, match="error"):
+        gateway.accept("abc123", "/data/torrents/verified", "anime-verified")
