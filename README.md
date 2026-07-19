@@ -396,3 +396,32 @@ del proyecto y no se confirman en este repositorio.
   `SONARR_IMAGE=lscr.io/linuxserver/sonarr@sha256:<digest>`. Las variables
   disponibles son `QBITTORRENT_IMAGE`, `JELLYFIN_IMAGE`, `SONARR_IMAGE`,
   `PROWLARR_IMAGE`, `BAZARR_IMAGE` y `OLLAMA_IMAGE`.
+
+### Backup remoto (offsite)
+
+`scripts/backup-offsite.sh` sube el snapshot local más reciente (creado por
+`backup-stack.sh`) a un remoto rclone, como redundancia offsite. Es opcional y
+no modifica el flujo de backup local existente.
+
+1. Configura un remoto con `rclone config` (el `rclone.conf` resultante y sus
+   credenciales quedan bajo tu control; el script nunca los lee, escribe ni
+   almacena).
+2. Define `OFFSITE_RCLONE_REMOTE` con el destino completo, por ejemplo
+   `gdrive:hobby-anime-backups`. Si la variable está vacía o no definida, el
+   script registra un mensaje y termina sin ejecutar rclone.
+3. Ejecuta el backup offsite solo después de que `backup-stack.sh` haya
+   finalizado con éxito, para no subir un snapshot incompleto.
+
+Ejemplo de entrada de cron en el host que encadena ambos scripts:
+
+```bash
+0 3 * * * cd /ruta/hobby-anime && ./scripts/backup-stack.sh && OFFSITE_RCLONE_REMOTE=gdrive:hobby-anime-backups ./scripts/backup-offsite.sh
+```
+
+Alternativa con systemd: dos unidades, con `offsite.service` declarando
+`After=backup-stack.service` y `Requires=backup-stack.service`, disparadas por
+un timer.
+
+La subida usa `rclone copy` (nunca `rclone sync`), por lo que nunca borra
+snapshots ya existentes en el remoto. Si `rclone` falla, el script registra el
+error y termina con código distinto de cero sin reintentar.
