@@ -136,6 +136,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    mem_limit: ${AGENT_MEM_LIMIT:-1g}
+    cpus: ${AGENT_CPUS:-1.0}
     depends_on:
       qbittorrent:
         condition: service_healthy
@@ -153,6 +155,8 @@ services:
     restart: unless-stopped
     volumes:
       - ${OLLAMA_CONFIG_ROOT:-/volume1/docker/hobby-anime/ollama}:/root/.ollama
+    mem_limit: ${OLLAMA_MEM_LIMIT:-4g}
+    cpus: ${OLLAMA_CPUS:-2.0}
     networks:
       - media
 
