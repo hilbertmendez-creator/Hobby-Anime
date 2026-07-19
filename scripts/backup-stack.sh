@@ -22,8 +22,8 @@ restart_services() {
 trap restart_services EXIT
 
 # Se detienen las bases SQLite para obtener una copia consistente.
-docker compose stop "${SERVICES[@]}"
 STOPPED=1
+docker compose stop "${SERVICES[@]}"
 
 install -d -m 700 "$DESTINATION"
 tar -C "$CONFIG_ROOT" -czf "$DESTINATION/config.tar.gz" .
