@@ -53,6 +53,43 @@ class FakeSonarr:
         ]
 
 
+class BrokenAniList:
+    def current_season(self) -> list[SeasonalMedia]:
+        raise RuntimeError("AniList unreachable")
+
+
+class BrokenSonarr:
+    def series(self) -> list[dict[str, object]]:
+        raise RuntimeError("Sonarr unreachable")
+
+    def calendar(self, start: object, end: object) -> list[dict[str, object]]:
+        raise RuntimeError("Sonarr unreachable")
+
+
+def test_monthly_survives_anilist_failure(settings: Settings) -> None:
+    notifier = FakeNotifier()
+
+    report = run_monthly(settings, anilist_client=BrokenAniList(), notifier=notifier)
+
+    assert report
+    assert notifier.report == report
+
+
+def test_monthly_survives_sonarr_failure(settings: Settings) -> None:
+    configured = replace(settings, sonarr_enabled=True, sonarr_api_key="secret")
+    notifier = FakeNotifier()
+
+    report = run_monthly(
+        configured,
+        anilist_client=FakeAniList(),
+        notifier=notifier,
+        sonarr_client=BrokenSonarr(),
+    )
+
+    assert "Seasonal Example" in report
+    assert notifier.report == report
+
+
 def test_monthly_uses_deterministic_report_by_default(settings: Settings) -> None:
     notifier = FakeNotifier()
 

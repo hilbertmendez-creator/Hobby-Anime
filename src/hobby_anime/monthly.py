@@ -35,14 +35,22 @@ def run_monthly(
             settings.sonarr_api_key,
             settings.request_timeout_seconds,
         )
-        library = _merge_sonarr_library(library, sonarr_client.series())
-        now = datetime.now(UTC)
-        upcoming = sonarr_client.calendar(now, now + timedelta(days=30))
+        try:
+            library = _merge_sonarr_library(library, sonarr_client.series())
+            now = datetime.now(UTC)
+            upcoming = sonarr_client.calendar(now, now + timedelta(days=30))
+        except Exception:
+            LOGGER.exception("Sonarr query failed; continuing without Sonarr data")
     anilist_client = anilist_client or AniListClient(
         settings.anilist_url,
         settings.request_timeout_seconds,
     )
-    seasonal_media = mark_library_matches(library, anilist_client.current_season())
+    try:
+        current_season = anilist_client.current_season()
+    except Exception:
+        LOGGER.exception("AniList query failed; continuing without seasonal data")
+        current_season = []
+    seasonal_media = mark_library_matches(library, current_season)
 
     report: str
     if settings.ollama_enabled:
