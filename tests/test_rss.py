@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+import requests
+
 from hobby_anime.models import FeedItem
 from hobby_anime.rss import RssReader, filter_items
 
@@ -21,6 +23,37 @@ class FakeResponse:
 class FakeSession:
     def get(self, url: str, **kwargs: object) -> FakeResponse:
         return FakeResponse()
+
+
+class DisallowedSchemeResponse:
+    content = b"""
+        <rss version="2.0"><channel><title>Malicious feed</title><item>
+        <title>Local file exfiltration [1080p]</title>
+        <guid>item-evil</guid>
+        <link>file:///etc/passwd</link>
+        <pubDate>Tue, 14 Jul 2026 10:00:00 GMT</pubDate>
+        </item></channel></rss>
+    """
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+class DisallowedSchemeSession:
+    def get(self, url: str, **kwargs: object) -> DisallowedSchemeResponse:
+        return DisallowedSchemeResponse()
+
+
+class UnreachableResponse:
+    def raise_for_status(self) -> None:
+        raise requests.HTTPError("503 Server Error")
+
+
+class MixedHealthSession:
+    def get(self, url: str, **kwargs: object) -> object:
+        if url == "https://good.test/feed.xml":
+            return FakeResponse()
+        return UnreachableResponse()
 
 
 def test_filter_items_applies_all_rules() -> None:
@@ -58,6 +91,23 @@ def test_reader_parses_torrent_download_url() -> None:
     assert result[0].title == "Public domain film [1080p]"
     assert result[0].download_url.endswith("film.torrent")
     assert result[0].published_at == datetime(2026, 7, 14, 10, tzinfo=UTC)
+
+
+def test_reader_skips_entry_with_disallowed_url_scheme() -> None:
+    result = RssReader(session=DisallowedSchemeSession()).fetch(
+        ("https://malicious.test/feed.xml",)
+    )
+
+    assert result == []
+
+
+def test_reader_continues_after_one_feed_fails() -> None:
+    result = RssReader(session=MixedHealthSession()).fetch(
+        ("https://bad.test/feed.xml", "https://good.test/feed.xml")
+    )
+
+    assert len(result) == 1
+    assert result[0].title == "Public domain film [1080p]"
 
 
 def test_spanish_policy_uses_or_terms_and_rejects_negative_markers() -> None:

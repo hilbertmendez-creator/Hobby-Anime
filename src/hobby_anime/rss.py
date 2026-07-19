@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import html
+import logging
 import re
 import unicodedata
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,10 @@ import requests
 
 from hobby_anime.models import FeedItem
 
+LOGGER = logging.getLogger(__name__)
+
+_ALLOWED_URL_SCHEMES = {"http", "https"}
+
 
 class RssReader:
     def __init__(self, timeout_seconds: int = 30, session: requests.Session | None = None) -> None:
@@ -23,16 +28,25 @@ class RssReader:
     def fetch(self, urls: Iterable[str]) -> list[FeedItem]:
         items: list[FeedItem] = []
         for url in urls:
-            response = self.session.get(
-                url,
-                timeout=self.timeout_seconds,
-                headers={"User-Agent": "Hobby-Anime/0.1"},
-            )
-            response.raise_for_status()
-            parsed = feedparser.parse(response.content)
-            if parsed.bozo and not parsed.entries:
-                raise ValueError(f"Invalid RSS feed at {url}: {parsed.bozo_exception}")
-            items.extend(self._to_item(entry) for entry in parsed.entries)
+            try:
+                response = self.session.get(
+                    url,
+                    timeout=self.timeout_seconds,
+                    headers={"User-Agent": "Hobby-Anime/0.1"},
+                )
+                response.raise_for_status()
+                parsed = feedparser.parse(response.content)
+                if parsed.bozo and not parsed.entries:
+                    raise ValueError(f"Invalid RSS feed at {url}: {parsed.bozo_exception}")
+            except Exception as exc:
+                LOGGER.warning("Skipping RSS feed %s: %s", url, exc)
+                continue
+
+            for entry in parsed.entries:
+                try:
+                    items.append(self._to_item(entry))
+                except ValueError as exc:
+                    LOGGER.warning("Skipping RSS entry from %s: %s", url, exc)
         return items
 
     @staticmethod
@@ -139,13 +153,25 @@ def _download_url(entry: Any) -> str:
         if href:
             candidates.append(str(href))
 
-    for candidate in candidates:
+    allowed = [candidate for candidate in candidates if _has_allowed_scheme(candidate)]
+    if candidates and not allowed:
+        raise ValueError(
+            f"RSS entry download URL uses a disallowed scheme: {candidates[0]!r}"
+        )
+
+    for candidate in allowed:
         if candidate.startswith("magnet:"):
             return candidate
-    for candidate in candidates:
+    for candidate in allowed:
         if candidate.endswith(".torrent") or "/download/" in candidate:
             return candidate
-    return candidates[0] if candidates else ""
+    return allowed[0] if allowed else ""
+
+
+def _has_allowed_scheme(url: str) -> bool:
+    if url.startswith("magnet:"):
+        return True
+    return urlsplit(url).scheme.lower() in _ALLOWED_URL_SCHEMES
 
 
 def _published_at(entry: Any) -> datetime | None:
