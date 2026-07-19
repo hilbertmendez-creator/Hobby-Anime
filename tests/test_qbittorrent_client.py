@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -118,7 +119,7 @@ def test_gateway_lists_and_classifies_completed_downloads() -> None:
 
     assert downloads[0].torrent_hash == "abc123"
     assert downloads[0].content_path.name == "episode.mkv"
-    assert str(promoted.content_path) == client.current_save_path + "/episode.mkv"
+    assert promoted.content_path == Path(client.current_save_path) / "episode.mkv"
     assert client.locations[0]["location"] == "/data/torrents/verified"
     assert client.categories[0]["category"] == "anime-verified"
     assert client.stopped == ["def456"]

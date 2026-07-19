@@ -180,7 +180,13 @@ def test_rejects_video_symlink_escaping_quarantine(tmp_path: Path) -> None:
     quarantine.mkdir()
     outside = tmp_path / "outside.mkv"
     outside.touch()
-    (quarantine / "episode.mkv").symlink_to(outside)
+    try:
+        (quarantine / "episode.mkv").symlink_to(outside)
+    except OSError:
+        # Creating symlinks needs elevated privilege / Developer Mode on
+        # Windows; the deployment target (Linux/Docker) doesn't have this
+        # restriction, so skip rather than weaken the guard being tested.
+        pytest.skip("symlink creation requires elevated privilege on this host")
 
     with pytest.raises(ValueError, match="symbolic link"):
         FfprobeInspector(runner=FakeRunner([])).inspect(quarantine)
