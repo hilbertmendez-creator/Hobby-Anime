@@ -1,3 +1,5 @@
+import requests
+
 from hobby_anime.arr_clients import BazarrClient, ProwlarrClient
 
 
@@ -31,11 +33,27 @@ def test_prowlarr_uses_header_authentication() -> None:
     assert session.calls[0][1]["headers"]["X-Api-Key"] == "secret"
 
 
-def test_bazarr_uses_status_endpoint() -> None:
+def test_bazarr_uses_header_authentication() -> None:
     session = FakeSession()
     client = BazarrClient("http://bazarr:6767", "secret", session=session)
 
     client.status()
 
-    assert session.calls[0][0].endswith("/api/system/status")
-    assert session.calls[0][1]["params"] == {"apikey": "secret"}
+    url, kwargs = session.calls[0]
+    assert url.endswith("/api/system/status")
+    assert kwargs["headers"]["X-Api-Key"] == "secret"
+    assert "params" not in kwargs
+    assert "secret" not in url
+
+
+def test_bazarr_http_error_does_not_leak_key_in_url() -> None:
+    session = FakeSession()
+    client = BazarrClient("http://bazarr:6767", "top-secret-key", session=session)
+
+    client.status()
+
+    url = session.calls[0][0]
+    try:
+        raise requests.HTTPError(f"404 Client Error: Not Found for url: {url}")
+    except requests.HTTPError as exc:
+        assert "top-secret-key" not in str(exc)

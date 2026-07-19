@@ -50,8 +50,7 @@ class BazarrClient:
     def status(self) -> dict[str, Any]:
         response = self.session.get(
             f"{self.base_url}/api/system/status",
-            params={"apikey": self.api_key},
-            headers={"Accept": "application/json"},
+            headers={"Accept": "application/json", "X-Api-Key": self.api_key},
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
