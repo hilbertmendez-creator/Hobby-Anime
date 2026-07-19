@@ -10,6 +10,7 @@ from hobby_anime.config import Settings
 from hobby_anime.daily import run_daily
 from hobby_anime.database import TrackingDatabase
 from hobby_anime.doctor import run_checks
+from hobby_anime.jellyfin_client import JellyfinClient
 from hobby_anime.library import audit_library
 from hobby_anime.library_import import run_pending_imports
 from hobby_anime.manual_review import approve_rejection, list_rejections
@@ -42,7 +43,67 @@ def build_parser() -> argparse.ArgumentParser:
         "approve", help="Force-promote one or more rejected downloads"
     )
     approve_parser.add_argument("hashes", nargs="+", help="Torrent hashes to approve")
+    watched_parser = subparsers.add_parser(
+        "watched", help="Show Jellyfin watched status per series"
+    )
+    watched_parser.add_argument(
+        "--json", action="store_true", help="Emit the watched status as JSON"
+    )
+    watched_parser.add_argument(
+        "--series", help="Include per-episode played flags for this series id"
+    )
     return parser
+
+
+def _run_watched(settings: Settings, *, as_json: bool, series_id: str | None) -> int:
+    try:
+        if not settings.jellyfin_api_key:
+            raise ValueError("JELLYFIN_API_KEY is required")
+        if not settings.jellyfin_user_id:
+            raise ValueError("JELLYFIN_USER_ID is required when JELLYFIN_API_KEY is set")
+        client = JellyfinClient(
+            settings.jellyfin_url,
+            settings.jellyfin_api_key,
+            settings.jellyfin_user_id,
+            timeout_seconds=settings.request_timeout_seconds,
+            library_id=settings.jellyfin_library_id,
+        )
+        series_entries = []
+        for series in client.list_watched_series():
+            entry = {
+                "series_id": series.id,
+                "series_name": series.name,
+                "episodes_total": series.total_episodes,
+                "episodes_watched": series.watched_episodes,
+                "episodes": [],
+            }
+            if series_id and series_id == series.id:
+                entry["episodes"] = [
+                    {
+                        "episode_id": episode.id,
+                        "episode_name": episode.name,
+                        "played": episode.played,
+                    }
+                    for episode in client.episodes(series.id)
+                ]
+            series_entries.append(entry)
+    except Exception as exc:  # never leak the API key in error output
+        message = str(exc)
+        if as_json:
+            print(json.dumps({"error": message}, ensure_ascii=False))
+        else:
+            print(f"error: {message}")
+        return 1
+
+    if as_json:
+        print(json.dumps({"series": series_entries}, ensure_ascii=False, indent=2))
+    else:
+        for entry in series_entries:
+            print(
+                f"{entry['series_name']}: "
+                f"{entry['episodes_watched']}/{entry['episodes_total']}"
+            )
+    return 0
 
 
 def main() -> int:
@@ -121,6 +182,8 @@ def main() -> int:
                     f"{rejected.torrent_hash[:12]}  {rejected.name}  ({rejected.reason})"
                 )
         return 0
+    if args.command == "watched":
+        return _run_watched(settings, as_json=args.json, series_id=args.series)
     if args.command == "approve":
         failures = 0
         for torrent_hash in args.hashes:
