@@ -259,12 +259,22 @@ hobby-anime daily
 hobby-anime verify
 hobby-anime import
 hobby-anime status
+hobby-anime rejections
+hobby-anime approve <hash>
 hobby-anime monthly
 hobby-anime doctor
 hobby-anime scheduler
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
+
+`rejections` lista las descargas que la política de idioma rechazó (hash, nombre
+y razón); acepta `--json` para consumo por scripts. `approve <hash>` fuerza la
+promoción de una o más descargas rechazadas: mueve el torrent a `verified/`,
+reanuda el seeding, la registra como verificada con una nota de auditoría y, si
+Sonarr está habilitado, encola la importación. `approve` **no** vuelve a
+inspeccionar el archivo, así que usalo solo con descargas que confirmaste que
+están correctamente etiquetadas.
 
 ## Desarrollo local
 
