@@ -378,6 +378,36 @@ gentle-ai sync --dry-run
 Gentle AI guarda su estado y respaldos en `~/.gentle-ai`; no contienen código
 del proyecto y no se confirman en este repositorio.
 
+## API de estado JSON
+
+El servicio opcional `hobby-anime-api` expone dos rutas de solo lectura para
+consultar el pipeline desde la LAN, documentadas automáticamente vía OpenAPI
+3.1 (`/docs`, `/openapi.json`):
+
+- `GET /status` → los mismos contadores que `hobby-anime status`
+  (`rss`, `verification`, `import`).
+- `GET /health` → los mismos chequeos que `hobby-anime doctor`, cada uno con
+  `ok` y `detail`. Responde siempre `200 OK`; un chequeo degradado se refleja
+  en el payload (`ok: false`), no en el código HTTP.
+
+Ambas rutas exigen el header `X-API-Token` con el valor de la variable de
+entorno `STATUS_API_TOKEN`. Si esa variable no está definida, el servicio se
+niega a arrancar (falla cerrado; nunca sirve sin autenticación).
+
+```bash
+# .env
+STATUS_API_TOKEN=un-token-largo-y-aleatorio
+
+docker compose up -d hobby-anime-api
+curl -H "X-API-Token: un-token-largo-y-aleatorio" http://IP_DEL_NAS:8787/status
+curl -H "X-API-Token: un-token-largo-y-aleatorio" http://IP_DEL_NAS:8787/health
+```
+
+El puerto publicado por defecto es `8787` (variable `STATUS_API_PORT`,
+sobreescribible en `.env`). El servicio reutiliza la imagen existente y corre
+como proceso independiente del scheduler (`hobby-anime`); ninguno de los dos
+afecta al otro.
+
 ## Operación y respaldo
 
 - Crea una copia consistente de todas las bases y configuraciones con
