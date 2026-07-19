@@ -68,6 +68,7 @@ class QBittorrentGateway:
         torrent_hash: str,
         verified_path: str,
         verified_category: str,
+        resume: bool = False,
     ) -> TorrentDownload:
         self.client.auth_log_in()
         self._ensure_category(verified_category, verified_path)
@@ -80,6 +81,8 @@ class QBittorrentGateway:
             category=verified_category,
             torrent_hashes=torrent_hash,
         )
+        if resume:
+            self.client.torrents_start(torrent_hashes=torrent_hash)
         return promoted
 
     def reject(self, torrent_hash: str, rejected_category: str) -> None:

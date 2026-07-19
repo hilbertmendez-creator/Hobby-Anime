@@ -16,6 +16,7 @@ class FakeClient:
         self.categories: list[dict[str, object]] = []
         self.stopped: list[str] = []
         self.current_save_path = "/data/torrents/quarantine"
+        self.started: list[str] = []
 
     def auth_log_in(self) -> None:
         return None
@@ -50,6 +51,9 @@ class FakeClient:
 
     def torrents_stop(self, torrent_hashes: str) -> None:
         self.stopped.append(torrent_hashes)
+
+    def torrents_start(self, torrent_hashes: str) -> None:
+        self.started.append(torrent_hashes)
 
 
 def test_gateway_creates_category_and_adds_download() -> None:
@@ -124,3 +128,27 @@ def test_gateway_lists_and_classifies_completed_downloads() -> None:
     assert client.categories[0]["category"] == "anime-verified"
     assert client.stopped == ["def456"]
     assert client.categories[1]["category"] == "anime-rejected"
+
+
+def test_accept_resumes_torrent_when_requested() -> None:
+    client = FakeClient()
+    gateway = QBittorrentGateway(
+        "host", 8080, "user", "pass",
+        "/data/torrents/quarantine", "anime", client,
+    )
+
+    gateway.accept("abc123", "/data/torrents/verified", "anime-verified", resume=True)
+
+    assert client.started == ["abc123"]
+
+
+def test_accept_does_not_resume_by_default() -> None:
+    client = FakeClient()
+    gateway = QBittorrentGateway(
+        "host", 8080, "user", "pass",
+        "/data/torrents/quarantine", "anime", client,
+    )
+
+    gateway.accept("abc123", "/data/torrents/verified", "anime-verified")
+
+    assert client.started == []
