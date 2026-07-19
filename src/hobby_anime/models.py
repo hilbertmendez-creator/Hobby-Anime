@@ -90,3 +90,18 @@ class ImportRunResult:
     skipped: int = 0
     failed: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WatchedSeries:
+    id: str
+    name: str
+    total_episodes: int
+    watched_episodes: int
+
+
+@dataclass(frozen=True)
+class WatchedEpisode:
+    id: str
+    name: str
+    played: bool

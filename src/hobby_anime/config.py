@@ -119,6 +119,9 @@ class Settings:
     status_api_token: str = ""
     status_api_host: str = "0.0.0.0"
     status_api_port: int = 8787
+    jellyfin_api_key: str = ""
+    jellyfin_user_id: str = ""
+    jellyfin_library_id: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -221,6 +224,9 @@ class Settings:
             status_api_token=os.getenv("STATUS_API_TOKEN", ""),
             status_api_host=os.getenv("STATUS_API_HOST", "0.0.0.0"),
             status_api_port=_int("STATUS_API_PORT", 8787),
+            jellyfin_api_key=os.getenv("JELLYFIN_API_KEY", ""),
+            jellyfin_user_id=os.getenv("JELLYFIN_USER_ID", ""),
+            jellyfin_library_id=os.getenv("JELLYFIN_LIBRARY_ID", ""),
         )
 
     def validate_daily(self, *, dry_run: bool = False) -> None:
@@ -273,3 +279,5 @@ class Settings:
             raise ValueError("BAZARR_API_KEY is required when BAZARR_ENABLED is true")
         if self.minimum_free_space_gb < 0:
             raise ValueError("MINIMUM_FREE_SPACE_GB cannot be negative")
+        if self.jellyfin_api_key and not self.jellyfin_user_id:
+            raise ValueError("JELLYFIN_USER_ID is required when JELLYFIN_API_KEY is set")
