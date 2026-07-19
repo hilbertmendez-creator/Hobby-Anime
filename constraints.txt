@@ -1,0 +1,16 @@
+# Pinned runtime dependency versions for reproducible NAS rebuilds.
+# Regenerate after intentional upgrades with:
+#   pip install . && pip freeze > constraints.txt   (then prune dev-only lines)
+# The Dockerfile installs the project with `-c constraints.txt` so an
+# unattended `docker compose up -d --build` cannot pull a breaking release.
+APScheduler==3.11.3
+feedparser==6.0.12
+qbittorrent-api==2026.7.0
+requests==2.34.2
+# Transitive dependencies
+certifi==2026.6.17
+charset-normalizer==3.4.9
+idna==3.18
+sgmllib3k==1.0.0
+tzlocal==5.4.4
+urllib3==2.7.0

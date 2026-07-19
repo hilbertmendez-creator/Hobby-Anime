@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "APScheduler>=3.11,<4",
     "feedparser>=6,<7",
-    "qbittorrent-api>=2025.7",
+    "qbittorrent-api>=2025.7,<2027",
     "requests>=2.32,<3",
 ]
 
