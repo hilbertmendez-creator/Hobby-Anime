@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from hobby_anime.config import Settings
 from hobby_anime.database import TrackingDatabase
@@ -9,6 +10,16 @@ from hobby_anime.notifications import Notifier
 from hobby_anime.sonarr_client import SonarrClient, SonarrCommandFailed
 
 LOGGER = logging.getLogger(__name__)
+
+MINIMUM_STALE_MINUTES = 30
+STALE_MARGIN_MINUTES = 5
+
+
+def _import_stale_minutes(settings: Settings) -> int:
+    """Derive claim staleness from the Sonarr import timeout so large batches
+    aren't preempted mid-import, with a floor matching the prior hardcoded default."""
+    computed = math.ceil(settings.sonarr_import_timeout_seconds / 60) + STALE_MARGIN_MINUTES
+    return max(MINIMUM_STALE_MINUTES, computed)
 
 
 def run_pending_imports(
@@ -33,9 +44,10 @@ def run_pending_imports(
     )
     downloads = database.pending_imports()
     result.discovered = len(downloads)
+    stale_after_minutes = _import_stale_minutes(settings)
 
     for download in downloads:
-        if not database.claim_import(download):
+        if not database.claim_import(download, stale_after_minutes=stale_after_minutes):
             result.skipped += 1
             continue
         command_id = database.import_command_id(download.torrent_hash)

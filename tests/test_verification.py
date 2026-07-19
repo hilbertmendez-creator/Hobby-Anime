@@ -1,4 +1,6 @@
+import sqlite3
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hobby_anime.config import Settings
@@ -184,3 +186,79 @@ def test_hybrid_flow_imports_only_verified_download(
     assert result.imported == 1
     assert result.import_failed == 0
     assert sonarr.scanned_hashes == ["spanish-hash"]
+
+
+def test_large_ffprobe_timeout_protects_in_progress_claim(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    quarantine = tmp_path / "quarantine"
+    verified = tmp_path / "verified"
+    quarantine.mkdir()
+    media = quarantine / "spanish.mkv"
+    media.touch()
+    configured = replace(
+        settings,
+        qbt_save_path=str(quarantine),
+        qbt_verified_path=str(verified),
+        ffprobe_timeout_seconds=3_600,
+    )
+    database = TrackingDatabase(settings.database_path)
+    database.initialize()
+    download = TorrentDownload("spanish-hash", "Spanish episode", media)
+    database.claim_verification(download, stale_after_minutes=65)
+    _backdate_verification_claim(database, "spanish-hash", minutes_ago=40)
+    gateway = FakeGateway([download])
+
+    result = run_verification(
+        configured,
+        gateway=gateway,
+        inspector=FakeInspector(),
+        database=database,
+    )
+
+    assert result.skipped == 1
+    assert gateway.accepted == []
+
+
+def test_short_ffprobe_timeout_still_reclaims_stale_claim(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    quarantine = tmp_path / "quarantine"
+    verified = tmp_path / "verified"
+    quarantine.mkdir()
+    media = quarantine / "spanish.mkv"
+    media.touch()
+    configured = replace(
+        settings,
+        qbt_save_path=str(quarantine),
+        qbt_verified_path=str(verified),
+    )
+    database = TrackingDatabase(settings.database_path)
+    database.initialize()
+    download = TorrentDownload("spanish-hash", "Spanish episode", media)
+    database.claim_verification(download, stale_after_minutes=30)
+    _backdate_verification_claim(database, "spanish-hash", minutes_ago=45)
+    gateway = FakeGateway([download])
+
+    result = run_verification(
+        configured,
+        gateway=gateway,
+        inspector=FakeInspector(),
+        database=database,
+    )
+
+    assert result.verified == 1
+    assert gateway.accepted[0][0] == "spanish-hash"
+
+
+def _backdate_verification_claim(
+    database: TrackingDatabase, torrent_hash: str, *, minutes_ago: int
+) -> None:
+    stale_at = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "UPDATE download_verification SET updated_at = ? WHERE torrent_hash = ?",
+            (stale_at, torrent_hash),
+        )

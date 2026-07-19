@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from hobby_anime.config import Settings
@@ -13,6 +14,16 @@ from hobby_anime.qbittorrent_client import QBittorrentGateway
 from hobby_anime.sonarr_client import SonarrClient
 
 LOGGER = logging.getLogger(__name__)
+
+MINIMUM_STALE_MINUTES = 30
+STALE_MARGIN_MINUTES = 5
+
+
+def _verification_stale_minutes(settings: Settings) -> int:
+    """Derive claim staleness from the ffprobe timeout so slow inspections
+    aren't preempted mid-run, with a floor matching the prior hardcoded default."""
+    computed = math.ceil(settings.ffprobe_timeout_seconds / 60) + STALE_MARGIN_MINUTES
+    return max(MINIMUM_STALE_MINUTES, computed)
 
 
 def run_verification(
@@ -45,9 +56,10 @@ def run_verification(
     )
     downloads = gateway.completed(settings.qbt_verify_categories)
     result = VerificationRunResult(discovered=len(downloads))
+    stale_after_minutes = _verification_stale_minutes(settings)
 
     for download in downloads:
-        if not database.claim_verification(download):
+        if not database.claim_verification(download, stale_after_minutes=stale_after_minutes):
             result.skipped += 1
             continue
         try:
