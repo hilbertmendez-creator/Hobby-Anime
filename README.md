@@ -245,6 +245,9 @@ automáticamente el reporte determinista.
 | `OLLAMA_ENABLED` | `false` | Activa el reporte con LLM local |
 | `WEBHOOK_URL` | vacío | Webhook entrante con payload `{"text": "..."}` |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | vacío | Notificación Telegram |
+| `JELLYFIN_API_KEY` | vacío | Habilita el cliente de estado visto de Jellyfin (requiere `JELLYFIN_USER_ID`) |
+| `JELLYFIN_USER_ID` | vacío | Usuario de Jellyfin cuyo progreso se consulta; obligatorio si `JELLYFIN_API_KEY` está definido |
+| `JELLYFIN_LIBRARY_ID` | vacío | Restringe la consulta a una biblioteca (`ParentId`); si no se define, consulta todas las series |
 
 APScheduler interpreta las horas usando `TZ`. La configuración completa y sus
 valores seguros están en `.env.example`.
@@ -264,6 +267,7 @@ hobby-anime approve <hash>
 hobby-anime monthly
 hobby-anime doctor
 hobby-anime scheduler
+hobby-anime watched
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
@@ -275,6 +279,41 @@ reanuda el seeding, la registra como verificada con una nota de auditoría y, si
 Sonarr está habilitado, encola la importación. `approve` **no** vuelve a
 inspeccionar el archivo, así que usalo solo con descargas que confirmaste que
 están correctamente etiquetadas.
+
+## Estado visto (Jellyfin)
+
+`hobby-anime watched [--json] [--series ID]` consulta, en modo solo lectura, el
+estado visto/pendiente de cada serie en Jellyfin usando la API autenticada por
+cabecera `X-Emby-Token` (la clave nunca viaja en la URL ni se registra en logs
+o errores). Requiere las siguientes variables de entorno:
+
+| Variable | Obligatoria | Uso |
+| --- | --- | --- |
+| `JELLYFIN_API_KEY` | Sí, para usar `watched` | Clave de API de Jellyfin |
+| `JELLYFIN_USER_ID` | Sí, si `JELLYFIN_API_KEY` está definido | Usuario cuyo progreso se consulta |
+| `JELLYFIN_LIBRARY_ID` | No | Restringe la consulta a una biblioteca (`ParentId`); sin definir, consulta todas las series |
+
+Sin flags imprime una tabla legible con nombre de serie y episodios vistos/total
+por serie. Con `--json` emite un único documento JSON:
+
+```json
+{
+  "series": [
+    {
+      "series_id": "abc",
+      "series_name": "Frieren",
+      "episodes_total": 28,
+      "episodes_watched": 12,
+      "episodes": []
+    }
+  ]
+}
+```
+
+`episodes` solo se completa cuando se pasa `--series ID`; en ese caso incluye el
+detalle por episodio (`episode_id`, `episode_name`, `played`) de esa serie.
+Errores de configuración o autenticación (clave/usuario faltante, 401/403) se
+reportan con salida distinta de cero y nunca exponen el valor de la clave.
 
 ## Desarrollo local
 
