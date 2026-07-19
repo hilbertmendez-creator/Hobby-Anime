@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import hobby_anime.cli as cli
 from hobby_anime.config import Settings
+from hobby_anime.manual_review import ApprovalError
 from hobby_anime.models import RejectedDownload
 
 
@@ -28,7 +29,7 @@ def test_approve_command_returns_nonzero_when_a_hash_fails(
     def fake_approve(_settings: Settings, torrent_hash: str, **_kwargs: object):
         calls.append(torrent_hash)
         if torrent_hash == "bad":
-            raise cli.ApprovalError("not a rejected download")
+            raise ApprovalError("not a rejected download")
         return SimpleNamespace(name="ok")
 
     monkeypatch.setattr(cli, "approve_rejection", fake_approve)

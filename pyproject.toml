@@ -19,6 +19,8 @@ dependencies = [
 dev = [
     "pytest>=8,<9",
     "pytest-cov>=6,<8",
+    "ruff>=0.6",
+    "pip-audit>=2.7",
 ]
 
 [project.scripts]
@@ -26,6 +28,12 @@ hobby-anime = "hobby_anime.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

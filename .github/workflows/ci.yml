@@ -8,6 +8,17 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src tests
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -18,3 +29,22 @@ jobs:
           cache: pip
       - run: python -m pip install -e ".[dev]"
       - run: pytest --cov --cov-report=term-missing
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pip-audit
+      # Scan only the runtime dependencies that ship to the NAS; dev tooling
+      # (pytest, ruff) is not deployed, so its advisories are out of scope here.
+      - run: pip-audit -r constraints.txt
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t hobby-anime:ci .

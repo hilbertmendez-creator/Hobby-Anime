@@ -12,7 +12,7 @@ from hobby_anime.database import TrackingDatabase
 from hobby_anime.doctor import run_checks
 from hobby_anime.library import audit_library
 from hobby_anime.library_import import run_pending_imports
-from hobby_anime.manual_review import ApprovalError, approve_rejection, list_rejections
+from hobby_anime.manual_review import approve_rejection, list_rejections
 from hobby_anime.monthly import run_monthly
 from hobby_anime.scheduler import start_scheduler
 from hobby_anime.verification import run_verification
