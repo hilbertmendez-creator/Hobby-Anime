@@ -148,6 +148,51 @@ services:
     networks:
       - media
 
+  hobby-anime-api:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    user: ${PUID:-1000}:${PGID:-1000}
+    env_file:
+      - .env
+    command:
+      [
+        "uvicorn",
+        "hobby_anime.status_api:build_app",
+        "--factory",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8787",
+      ]
+    environment:
+      STATUS_API_TOKEN: ${STATUS_API_TOKEN:?set a token}
+      STATUS_API_PORT: 8787
+    volumes:
+      - ${AGENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/agent}:/config
+      - ${DATA_ROOT:-/volume1/data}/media:/data/media:ro
+      - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents:ro
+    ports:
+      - "${LAN_IP:-127.0.0.1}:${STATUS_API_PORT:-8787}:8787"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS -H \"X-API-Token: $$STATUS_API_TOKEN\" http://localhost:8787/health >/dev/null || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: ${AGENT_API_MEM_LIMIT:-512m}
+    cpus: ${AGENT_API_CPUS:-0.5}
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+    networks:
+      - media
+
   ollama:
     image: ${OLLAMA_IMAGE:-ollama/ollama:0.32.1}
     profiles:
