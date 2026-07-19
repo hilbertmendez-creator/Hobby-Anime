@@ -116,6 +116,9 @@ class Settings:
     import_retry_interval_minutes: int = 30
     minimum_free_space_gb: int = 0
     rss_enabled: bool = True
+    status_api_token: str = ""
+    status_api_host: str = "0.0.0.0"
+    status_api_port: int = 8787
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -215,6 +218,9 @@ class Settings:
             ),
             minimum_free_space_gb=_int("MINIMUM_FREE_SPACE_GB", 100),
             rss_enabled=_bool("RSS_ENABLED", True),
+            status_api_token=os.getenv("STATUS_API_TOKEN", ""),
+            status_api_host=os.getenv("STATUS_API_HOST", "0.0.0.0"),
+            status_api_port=_int("STATUS_API_PORT", 8787),
         )
 
     def validate_daily(self, *, dry_run: bool = False) -> None:
