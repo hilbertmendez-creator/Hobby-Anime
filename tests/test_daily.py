@@ -84,3 +84,18 @@ def test_daily_can_be_disabled_for_sonarr_only_mode(settings: Settings) -> None:
 
     assert result.discovered == 0
     assert result.added == 0
+
+
+def test_daily_rejects_spanish_only_misconfiguration(settings: Settings) -> None:
+    configured = replace(
+        settings,
+        spanish_only=True,
+        spanish_language_terms=(),
+        spanish_trusted_groups=(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SPANISH_LANGUAGE_TERMS or SPANISH_TRUSTED_GROUPS is required",
+    ):
+        run_daily(configured, reader=FakeReader([]), gateway=FakeGateway())

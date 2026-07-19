@@ -217,11 +217,11 @@ class Settings:
             rss_enabled=_bool("RSS_ENABLED", True),
         )
 
-    def validate_daily(self) -> None:
+    def validate_daily(self, *, dry_run: bool = False) -> None:
         errors: list[str] = []
         if not self.rss_urls:
             errors.append("RSS_URLS is required")
-        if not self.qbt_password:
+        if not dry_run and not self.qbt_password:
             errors.append("QBITTORRENT_PASSWORD is required")
         if self.spanish_only and not (
             self.spanish_language_terms or self.spanish_trusted_groups

@@ -26,10 +26,7 @@ def run_daily(
     if not settings.rss_enabled:
         LOGGER.info("Daily RSS agent is disabled")
         return DailyRunResult()
-    if not settings.rss_urls:
-        raise ValueError("RSS_URLS is required")
-    if not dry_run and not settings.qbt_password:
-        raise ValueError("QBITTORRENT_PASSWORD is required")
+    settings.validate_daily(dry_run=dry_run)
     if not dry_run and settings.minimum_free_space_gb:
         quarantine = Path(settings.qbt_save_path)
         if not quarantine.is_dir():
