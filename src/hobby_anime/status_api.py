@@ -74,6 +74,44 @@ _UNAUTHORIZED_RESPONSE = {
     "content": {"application/json": {"example": {"detail": "Invalid or missing API token"}}},
 }
 
+# Multiple named 200 examples for `/status`, merged into the schema-derived
+# response so consumers see both a running pipeline and a freshly-initialized,
+# empty one.
+_STATUS_OK_EXAMPLES = {
+    "populated": {
+        "summary": "Pipeline with activity across every stage",
+        "value": {
+            "rss": {"added": 12, "error": 1},
+            "verification": {"processing": 2, "verified": 8, "rejected": 1},
+            "import": {"pending": 1, "imported": 7},
+        },
+    },
+    "empty": {
+        "summary": "Freshly-initialized database with no items yet",
+        "value": {"rss": {}, "verification": {}, "import": {}},
+    },
+}
+
+# Multiple named 200 examples for `/health`. The endpoint always returns 200;
+# a degraded dependency shows up as `ok: false` in the payload, so consumers
+# must inspect the body rather than rely on the status code.
+_HEALTH_OK_EXAMPLES = {
+    "healthy": {
+        "summary": "All dependencies reachable",
+        "value": {
+            "database": {"ok": True, "detail": "/config/hobby-anime.db"},
+            "qbittorrent": {"ok": True, "detail": "Connected (v4.6.0)"},
+        },
+    },
+    "degraded": {
+        "summary": "A dependency is down (still HTTP 200)",
+        "value": {
+            "database": {"ok": True, "detail": "/config/hobby-anime.db"},
+            "qbittorrent": {"ok": False, "detail": "Connection refused"},
+        },
+    },
+}
+
 
 def create_app(settings: Settings, database: PipelineDatabase) -> FastAPI:
     """Build the FastAPI app, injecting settings and a database dependency.
@@ -104,9 +142,20 @@ def create_app(settings: Settings, database: PipelineDatabase) -> FastAPI:
     @app.get(
         "/status",
         response_model=PipelineSummary,
+        operation_id="get_pipeline_status",
+        tags=["Status"],
         summary="Pipeline status counts",
-        description="Returns per-stage status counts from the tracking database.",
-        responses={401: _UNAUTHORIZED_RESPONSE},
+        description=(
+            "Returns per-stage status counts from the tracking database. Each "
+            "top-level key is a pipeline stage (`rss`, `verification`, "
+            "`import`); each nested key is an item status within that stage "
+            "mapped to the number of tracked items in it."
+        ),
+        response_description="Per-stage pipeline counts, keyed by stage then item status.",
+        responses={
+            200: {"content": {"application/json": {"examples": _STATUS_OK_EXAMPLES}}},
+            401: _UNAUTHORIZED_RESPONSE,
+        },
         dependencies=[Depends(require_token)],
     )
     def get_status() -> dict[str, dict[str, int]]:
@@ -115,13 +164,20 @@ def create_app(settings: Settings, database: PipelineDatabase) -> FastAPI:
     @app.get(
         "/health",
         response_model=HealthReport,
+        operation_id="get_health_report",
+        tags=["Status"],
         summary="System health checks",
         description=(
             "Returns diagnostic checks for storage, media, and third-party "
-            "dependencies. Always returns 200; degraded checks are reported "
-            "in the payload via `ok: false`."
+            "dependencies, keyed by check name. Always returns 200; degraded "
+            "checks are reported in the payload via `ok: false`, so consumers "
+            "must inspect the body rather than the HTTP status code."
         ),
-        responses={401: _UNAUTHORIZED_RESPONSE},
+        response_description="Diagnostic check results, keyed by check name.",
+        responses={
+            200: {"content": {"application/json": {"examples": _HEALTH_OK_EXAMPLES}}},
+            401: _UNAUTHORIZED_RESPONSE,
+        },
         dependencies=[Depends(require_token)],
     )
     def get_health() -> dict[str, dict[str, Any]]:
