@@ -270,6 +270,7 @@ hobby-anime scheduler
 hobby-anime watched
 hobby-anime anilist-auth
 hobby-anime push-anilist
+hobby-anime cleanup
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
@@ -409,6 +410,63 @@ usado por `monthly` para descubrimiento estacional:
   Un token ausente o vencido (`anilist-auth` nunca ejecutado, o token
   expirado) produce un error claro que indica correr `anilist-auth`, con
   salida distinta de cero y sin exponer el valor del token en ningún caso.
+
+## Limpieza de disco (destructivo)
+
+`hobby-anime cleanup [--execute] [--yes] [--force-hardlinks] [--json]` borra
+del disco las series **completamente vistas** (episodios vistos == episodios
+totales) según Jellyfin, reutilizando las mismas variables de entorno que
+`watched` (`JELLYFIN_API_KEY`, `JELLYFIN_USER_ID`, `JELLYFIN_LIBRARY_ID`
+opcional).
+
+**El modo por defecto es de solo vista previa (dry-run): sin flags nunca
+borra nada en disco.** Debes pasar `--execute` explícitamente para permitir
+el borrado. Con `--execute`, el comando pide confirmación interactiva
+(`y/N`) antes de borrar; `--yes` omite **únicamente** esa confirmación, nunca
+sustituye a `--execute`. Es decir, `cleanup --yes` sin `--execute` sigue
+siendo una vista previa.
+
+Antes de borrar cada serie, el comando revalida en disco (los datos de
+Jellyfin pueden estar desactualizados), rechaza cualquier ruta que resuelva
+fuera de `SONARR_MEDIA_ROOT` o `MEDIA_PATH` (incluyendo intentos de
+traversal `../` o symlinks que escapen de esas raíces) y detecta archivos con
+más de un enlace duro (`st_nlink > 1`). Un archivo con hardlink normalmente
+indica que Sonarr todavía lo mantiene enlazado al torrent en `verified/`
+(seeding activo); ese tipo de series se omite por defecto y solo se borra si
+pasás `--force-hardlinks` junto con `--execute` (y confirmación o `--yes`).
+
+Si borrar una serie falla (por ejemplo, permisos), el error se aísla: las
+demás series del lote se siguen procesando con normalidad. `freed_bytes` en
+el reporte solo cuenta el espacio de las series **efectivamente borradas**,
+nunca el de series omitidas, con error o en modo de solo vista previa.
+
+Sin flags imprime una tabla legible con el estado de cada serie
+(`deletable`, `skipped`, `deleted`, `failed`, `error`) y su ruta. Con
+`--json` emite un único documento:
+
+```json
+{
+  "executed": false,
+  "deletable": 1,
+  "skipped": 0,
+  "errors": 0,
+  "freed_bytes": 0,
+  "items": [
+    {
+      "series_id": "abc",
+      "series_name": "Frieren",
+      "path": "/data/media/anime/Frieren",
+      "status": "deletable",
+      "reason": "",
+      "freed_bytes": 0,
+      "hardlinked": false
+    }
+  ]
+}
+```
+
+Como con `watched`, los errores de configuración o autenticación de Jellyfin
+se reportan con salida distinta de cero y nunca exponen el valor de la clave.
 
 ## Desarrollo local
 

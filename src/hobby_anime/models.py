@@ -142,3 +142,24 @@ class AniListPushReport:
     candidates: tuple[AniListPushCandidate, ...] = ()
     errors: tuple[str, ...] = ()
     executed: bool = False
+
+
+@dataclass(frozen=True)
+class CleanupCandidate:
+    series_id: str
+    series_name: str
+    path: Path
+    status: str  # "deletable" | "skipped" | "error"
+    reason: str = ""
+    freed_bytes: int = 0
+    hardlinked: bool = False
+
+
+@dataclass(frozen=True)
+class CleanupReport:
+    executed: bool
+    deletable: int
+    skipped: int
+    errors: int
+    freed_bytes: int
+    items: tuple[CleanupCandidate, ...] = ()
