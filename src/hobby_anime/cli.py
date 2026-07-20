@@ -6,6 +6,8 @@ import logging
 import os
 from dataclasses import asdict
 
+from hobby_anime.anilist_oauth import run_auth_flow
+from hobby_anime.anilist_push import run_push
 from hobby_anime.config import Settings
 from hobby_anime.daily import run_daily
 from hobby_anime.database import TrackingDatabase
@@ -51,6 +53,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watched_parser.add_argument(
         "--series", help="Include per-episode played flags for this series id"
+    )
+    subparsers.add_parser(
+        "anilist-auth",
+        help="Authorize Hobby-Anime with AniList via OAuth2 and store the token",
+    )
+    push_anilist_parser = subparsers.add_parser(
+        "push-anilist",
+        help="Push Jellyfin watched progress to AniList (dry-run by default)",
+    )
+    push_anilist_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually mutate AniList list entries (default is dry-run preview only)",
+    )
+    push_anilist_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt (still requires --execute)",
+    )
+    push_anilist_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Also push partially-watched series as CURRENT (default pushes only completed series)",
+    )
+    push_anilist_parser.add_argument(
+        "--json", action="store_true", help="Emit the push report as JSON"
     )
     return parser
 
@@ -104,6 +132,89 @@ def _run_watched(settings: Settings, *, as_json: bool, series_id: str | None) ->
                 f"{entry['episodes_watched']}/{entry['episodes_total']}"
             )
     return 0
+
+
+def _run_anilist_auth(settings: Settings) -> int:
+    try:
+        database = TrackingDatabase(settings.database_path)
+        database.initialize()
+        run_auth_flow(settings, database)
+    except Exception as exc:  # never leak client secret/code/token in error output
+        print(f"error: {exc}")
+        return 1
+    print("AniList authorization successful. Token stored.")
+    return 0
+
+
+def _run_push_anilist(
+    settings: Settings,
+    *,
+    execute: bool,
+    assume_yes: bool,
+    progress_mode: bool,
+    as_json: bool,
+) -> int:
+    try:
+        database = TrackingDatabase(settings.database_path)
+        database.initialize()
+        report = run_push(
+            settings,
+            database,
+            execute=execute,
+            assume_yes=assume_yes,
+            progress_mode=progress_mode,
+        )
+    except Exception as exc:  # never leak the client secret/token in error output
+        message = str(exc)
+        if as_json:
+            print(json.dumps({"error": message}, ensure_ascii=False))
+        else:
+            print(f"error: {message}")
+        return 1
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "executed": report.executed,
+                    "pushed": report.pushed,
+                    "skipped_unchanged": report.skipped_unchanged,
+                    "skipped_unmapped": report.skipped_unmapped,
+                    "failed": report.failed,
+                    "errors": list(report.errors),
+                    "candidates": [
+                        {
+                            "series_id": candidate.series_id,
+                            "series_name": candidate.series_name,
+                            "media_id": candidate.media_id,
+                            "source": candidate.source,
+                            "status": candidate.status,
+                            "progress": candidate.progress,
+                            "skip_reason": candidate.skip_reason,
+                        }
+                        for candidate in report.candidates
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        mode = "EXECUTED" if report.executed else "DRY-RUN (preview only)"
+        print(f"push-anilist [{mode}]")
+        for candidate in report.candidates:
+            if candidate.skip_reason:
+                print(f"{candidate.series_name}: skip ({candidate.skip_reason})")
+            else:
+                print(
+                    f"{candidate.series_name}: {candidate.status} {candidate.progress} "
+                    f"(media_id={candidate.media_id}, source={candidate.source})"
+                )
+        print(
+            f"pushed={report.pushed} skipped_unchanged={report.skipped_unchanged} "
+            f"skipped_unmapped={report.skipped_unmapped} failed={report.failed}"
+        )
+    return 1 if report.failed else 0
 
 
 def main() -> int:
@@ -184,6 +295,16 @@ def main() -> int:
         return 0
     if args.command == "watched":
         return _run_watched(settings, as_json=args.json, series_id=args.series)
+    if args.command == "anilist-auth":
+        return _run_anilist_auth(settings)
+    if args.command == "push-anilist":
+        return _run_push_anilist(
+            settings,
+            execute=args.execute,
+            assume_yes=args.yes,
+            progress_mode=args.progress,
+            as_json=args.json,
+        )
     if args.command == "approve":
         failures = 0
         for torrent_hash in args.hashes:

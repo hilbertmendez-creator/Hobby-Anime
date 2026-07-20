@@ -268,6 +268,8 @@ hobby-anime monthly
 hobby-anime doctor
 hobby-anime scheduler
 hobby-anime watched
+hobby-anime anilist-auth
+hobby-anime push-anilist
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
@@ -314,6 +316,99 @@ por serie. Con `--json` emite un único documento JSON:
 detalle por episodio (`episode_id`, `episode_name`, `played`) de esa serie.
 Errores de configuración o autenticación (clave/usuario faltante, 401/403) se
 reportan con salida distinta de cero y nunca exponen el valor de la clave.
+
+## Sincronización con AniList (push de progreso visto)
+
+Dos comandos, ambos aditivos y separados del cliente anónimo `AniListClient`
+usado por `monthly` para descubrimiento estacional:
+
+- `hobby-anime anilist-auth` autoriza la app con tu cuenta de AniList vía
+  OAuth2 (authorization-code grant) y guarda el token en la base de datos
+  local (mismo archivo `chmod 0600` que el resto del estado). Requiere:
+
+  | Variable | Obligatoria | Uso |
+  | --- | --- | --- |
+  | `ANILIST_CLIENT_ID` | Sí | Client ID de tu app registrada en AniList |
+  | `ANILIST_CLIENT_SECRET` | Sí | Client secret de esa app (nunca se imprime ni se loguea) |
+  | `ANILIST_REDIRECT_PORT` | No (`8712` por defecto) | Puerto local del callback OAuth; no puede coincidir con `STATUS_API_PORT` |
+
+  El comando abre (o imprime, si no hay navegador disponible) la URL de
+  consentimiento, levanta un listener HTTP efímero atado exclusivamente a
+  `127.0.0.1` (un solo request, con `state` CSPRNG anti-CSRF y timeout), y al
+  recibir el código lo intercambia por un access token que guarda en la
+  tabla `anilist_token`. El `client_secret`, el código de autorización y el
+  token nunca aparecen en la URL, en logs ni en mensajes de error.
+
+- `hobby-anime push-anilist [--execute] [--yes] [--progress] [--json]`
+  empuja el progreso visto (leído en modo solo lectura desde Jellyfin, igual
+  que `watched`) hacia tu lista de AniList mediante mutaciones GraphQL
+  autenticadas por `Authorization: Bearer`.
+
+  **El modo por defecto es de solo vista previa (dry-run): sin `--execute`
+  nunca se envía ninguna mutación a AniList.** Con `--execute`, el comando
+  pide confirmación interactiva (`y/N`) antes de escribir; `--yes` omite
+  **únicamente** esa confirmación, nunca sustituye a `--execute`.
+
+  Por defecto solo se consideran las series **completamente vistas**
+  (episodios vistos == total), que se marcan `COMPLETED` con el conteo total
+  de episodios. Con `--progress` también se incluyen las series parcialmente
+  vistas, que se marcan `CURRENT` con el conteo de episodios vistos.
+
+  La identidad de cada serie (Jellyfin -> AniList) se resuelve con una regla
+  híbrida y conservadora que nunca adivina:
+  1. Un override manual persistido (tabla `anilist_mapping`) siempre gana.
+  2. Si no hay override, se busca por título normalizado (case/puntuación/
+     espacios insensibles, con marcadores de temporada como "Season 2"/"S2"/
+     "2nd Season" removidos) y, si hay año disponible, se prioriza la
+     coincidencia de año; solo se acepta el match automático si queda
+     **exactamente un** candidato.
+  3. Si hay cero candidatos o varios ambiguos (o desacuerdo de año sin
+     candidato de año desconocido), la serie se omite (`skip_reason:
+     "unmapped"`) y se reporta — nunca se envía a un id adivinado.
+
+  Antes de escribir, el comando consulta la entrada actual en AniList
+  (`get_list_entry`) y aplica una regla de idempotencia: si el estado y
+  progreso ya coinciden, la serie se omite (`"unchanged"`) sin generar
+  mutación; el progreso **nunca se hace retroceder** (si AniList ya reporta
+  más progreso que el objetivo calculado, también se omite).
+
+  Cada serie se procesa de forma aislada: si una mutación falla (error de
+  red, HTTP, etc.), se registra como `failed` y el resto del lote continúa
+  con normalidad. Las peticiones de escritura se pausan (~0.7s entre cada
+  una) para respetar el límite de tasa de AniList (~90 req/min), y una
+  respuesta `429` se reintenta respetando el header `Retry-After` (o backoff
+  exponencial si no está presente) hasta 3 veces antes de marcar la serie
+  como fallida.
+
+  Sin flags imprime una tabla legible por serie (empujada, omitida con
+  motivo, o fallida) y un resumen de conteos. Con `--json` emite un único
+  documento:
+
+  ```json
+  {
+    "executed": false,
+    "pushed": 1,
+    "skipped_unchanged": 0,
+    "skipped_unmapped": 0,
+    "failed": 0,
+    "errors": [],
+    "candidates": [
+      {
+        "series_id": "abc",
+        "series_name": "Frieren",
+        "media_id": 154587,
+        "source": "auto",
+        "status": "COMPLETED",
+        "progress": 28,
+        "skip_reason": ""
+      }
+    ]
+  }
+  ```
+
+  Un token ausente o vencido (`anilist-auth` nunca ejecutado, o token
+  expirado) produce un error claro que indica correr `anilist-auth`, con
+  salida distinta de cero y sin exponer el valor del token en ningún caso.
 
 ## Desarrollo local
 
