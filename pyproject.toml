@@ -24,6 +24,7 @@ dev = [
     "ruff>=0.6",
     "pip-audit>=2.7",
     "httpx2>=2.7,<3",
+    "commitizen>=3,<5",
 ]
 
 [project.scripts]
@@ -44,3 +45,10 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["hobby_anime"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true
