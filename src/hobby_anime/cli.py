@@ -6,6 +6,7 @@ import logging
 import os
 from dataclasses import asdict
 
+from hobby_anime.cleanup import run_cleanup
 from hobby_anime.config import Settings
 from hobby_anime.daily import run_daily
 from hobby_anime.database import TrackingDatabase
@@ -51,6 +52,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watched_parser.add_argument(
         "--series", help="Include per-episode played flags for this series id"
+    )
+    cleanup_parser = subparsers.add_parser(
+        "cleanup",
+        help="Delete on-disk media for fully-watched series (destructive; dry-run by default)",
+    )
+    cleanup_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually delete files (default is dry-run preview only)",
+    )
+    cleanup_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt (still requires --execute)",
+    )
+    cleanup_parser.add_argument(
+        "--force-hardlinks",
+        action="store_true",
+        help="Delete series even when files are hardlinked elsewhere (e.g. still-seeding torrents)",
+    )
+    cleanup_parser.add_argument(
+        "--json", action="store_true", help="Emit the cleanup report as JSON"
     )
     return parser
 
@@ -104,6 +127,80 @@ def _run_watched(settings: Settings, *, as_json: bool, series_id: str | None) ->
                 f"{entry['episodes_watched']}/{entry['episodes_total']}"
             )
     return 0
+
+
+def _run_cleanup(
+    settings: Settings,
+    *,
+    execute: bool,
+    assume_yes: bool,
+    force_hardlinks: bool,
+    as_json: bool,
+) -> int:
+    try:
+        if not settings.jellyfin_api_key:
+            raise ValueError("JELLYFIN_API_KEY is required")
+        if not settings.jellyfin_user_id:
+            raise ValueError("JELLYFIN_USER_ID is required when JELLYFIN_API_KEY is set")
+        client = JellyfinClient(
+            settings.jellyfin_url,
+            settings.jellyfin_api_key,
+            settings.jellyfin_user_id,
+            timeout_seconds=settings.request_timeout_seconds,
+            library_id=settings.jellyfin_library_id,
+        )
+        report = run_cleanup(
+            settings,
+            execute=execute,
+            force_hardlinks=force_hardlinks,
+            assume_yes=assume_yes,
+            client=client,
+        )
+    except Exception as exc:  # never leak the API key in error output
+        message = str(exc)
+        if as_json:
+            print(json.dumps({"error": message}, ensure_ascii=False))
+        else:
+            print(f"error: {message}")
+        return 1
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "executed": report.executed,
+                    "deletable": report.deletable,
+                    "skipped": report.skipped,
+                    "errors": report.errors,
+                    "freed_bytes": report.freed_bytes,
+                    "items": [
+                        {
+                            "series_id": item.series_id,
+                            "series_name": item.series_name,
+                            "path": str(item.path),
+                            "status": item.status,
+                            "reason": item.reason,
+                            "freed_bytes": item.freed_bytes,
+                            "hardlinked": item.hardlinked,
+                        }
+                        for item in report.items
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        mode = "EXECUTED" if report.executed else "DRY-RUN (preview only)"
+        print(f"cleanup [{mode}]")
+        for item in report.items:
+            suffix = f" - {item.reason}" if item.reason else ""
+            print(f"{item.series_name}: {item.status} ({item.path}){suffix}")
+        print(
+            f"deletable={report.deletable} skipped={report.skipped} "
+            f"errors={report.errors} freed_bytes={report.freed_bytes}"
+        )
+    return 1 if report.errors else 0
 
 
 def main() -> int:
@@ -184,6 +281,14 @@ def main() -> int:
         return 0
     if args.command == "watched":
         return _run_watched(settings, as_json=args.json, series_id=args.series)
+    if args.command == "cleanup":
+        return _run_cleanup(
+            settings,
+            execute=args.execute,
+            assume_yes=args.yes,
+            force_hardlinks=args.force_hardlinks,
+            as_json=args.json,
+        )
     if args.command == "approve":
         failures = 0
         for torrent_hash in args.hashes:
