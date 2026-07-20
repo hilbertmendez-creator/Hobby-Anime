@@ -78,3 +78,73 @@ def test_validate_schedule_error_never_leaks_jellyfin_api_key(
 
     assert "top-secret-key" not in str(exc_info.value)
     assert "top-secret-key" not in repr(exc_info.value)
+
+
+def test_settings_from_env_reads_anilist_push_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANILIST_CLIENT_ID", "client-123")
+    monkeypatch.setenv("ANILIST_CLIENT_SECRET", "super-secret-value")
+    monkeypatch.setenv("ANILIST_REDIRECT_PORT", "9999")
+
+    settings = Settings.from_env()
+
+    assert settings.anilist_client_id == "client-123"
+    assert settings.anilist_client_secret == "super-secret-value"
+    assert settings.anilist_redirect_port == 9999
+
+
+def test_settings_from_env_defaults_anilist_redirect_port_distinct_from_status_api_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANILIST_REDIRECT_PORT", raising=False)
+    monkeypatch.delenv("STATUS_API_PORT", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.anilist_redirect_port == 8712
+    assert settings.anilist_redirect_port != settings.status_api_port
+
+
+def test_validate_anilist_push_requires_client_id_and_secret(
+    settings: Settings,
+) -> None:
+    with pytest.raises(ValueError, match="ANILIST_CLIENT_ID"):
+        replace(
+            settings,
+            anilist_client_id="",
+            anilist_client_secret="",
+        ).validate_anilist_push()
+
+    with pytest.raises(ValueError, match="ANILIST_CLIENT_SECRET"):
+        replace(
+            settings,
+            anilist_client_id="client-123",
+            anilist_client_secret="",
+        ).validate_anilist_push()
+
+
+def test_validate_anilist_push_rejects_redirect_port_collision(
+    settings: Settings,
+) -> None:
+    with pytest.raises(ValueError, match="ANILIST_REDIRECT_PORT"):
+        replace(
+            settings,
+            anilist_client_id="client-123",
+            anilist_client_secret="super-secret-value",
+            anilist_redirect_port=settings.status_api_port,
+        ).validate_anilist_push()
+
+
+def test_validate_anilist_push_error_never_leaks_client_secret(
+    settings: Settings,
+) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        replace(
+            settings,
+            anilist_client_id="",
+            anilist_client_secret="super-secret-value",
+        ).validate_anilist_push()
+
+    assert "super-secret-value" not in str(exc_info.value)
+    assert "super-secret-value" not in repr(exc_info.value)
