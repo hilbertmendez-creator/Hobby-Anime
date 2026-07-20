@@ -105,3 +105,40 @@ class WatchedEpisode:
     id: str
     name: str
     played: bool
+
+
+@dataclass(frozen=True)
+class StoredToken:
+    access_token: str
+    token_type: str
+    obtained_at: str
+    expires_at: str | None = None
+
+
+@dataclass(frozen=True)
+class AniListMatch:
+    media_id: int
+    title: str
+    year: int | None = None
+
+
+@dataclass(frozen=True)
+class AniListPushCandidate:
+    series_id: str
+    series_name: str
+    media_id: int | None
+    source: str
+    status: str
+    progress: int
+    skip_reason: str = ""
+
+
+@dataclass(frozen=True)
+class AniListPushReport:
+    pushed: int = 0
+    skipped_unchanged: int = 0
+    skipped_unmapped: int = 0
+    failed: int = 0
+    candidates: tuple[AniListPushCandidate, ...] = ()
+    errors: tuple[str, ...] = ()
+    executed: bool = False

@@ -122,6 +122,9 @@ class Settings:
     jellyfin_api_key: str = ""
     jellyfin_user_id: str = ""
     jellyfin_library_id: str = ""
+    anilist_client_id: str = ""
+    anilist_client_secret: str = ""
+    anilist_redirect_port: int = 8712
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -227,6 +230,9 @@ class Settings:
             jellyfin_api_key=os.getenv("JELLYFIN_API_KEY", ""),
             jellyfin_user_id=os.getenv("JELLYFIN_USER_ID", ""),
             jellyfin_library_id=os.getenv("JELLYFIN_LIBRARY_ID", ""),
+            anilist_client_id=os.getenv("ANILIST_CLIENT_ID", ""),
+            anilist_client_secret=os.getenv("ANILIST_CLIENT_SECRET", ""),
+            anilist_redirect_port=_int("ANILIST_REDIRECT_PORT", 8712),
         )
 
     def validate_daily(self, *, dry_run: bool = False) -> None:
@@ -281,3 +287,16 @@ class Settings:
             raise ValueError("MINIMUM_FREE_SPACE_GB cannot be negative")
         if self.jellyfin_api_key and not self.jellyfin_user_id:
             raise ValueError("JELLYFIN_USER_ID is required when JELLYFIN_API_KEY is set")
+
+    def validate_anilist_push(self) -> None:
+        errors: list[str] = []
+        if not self.anilist_client_id:
+            errors.append("ANILIST_CLIENT_ID is required")
+        if not self.anilist_client_secret:
+            errors.append("ANILIST_CLIENT_SECRET is required")
+        if self.anilist_redirect_port == self.status_api_port:
+            errors.append(
+                "ANILIST_REDIRECT_PORT must not collide with STATUS_API_PORT"
+            )
+        if errors:
+            raise ValueError("; ".join(errors))

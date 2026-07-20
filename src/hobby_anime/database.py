@@ -9,9 +9,15 @@ from pathlib import Path
 from typing import Iterator
 from urllib.parse import urlsplit, urlunsplit
 
-from hobby_anime.models import FeedItem, MediaInspection, RejectedDownload, TorrentDownload
+from hobby_anime.models import (
+    FeedItem,
+    MediaInspection,
+    RejectedDownload,
+    StoredToken,
+    TorrentDownload,
+)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS media_tracking (
@@ -56,6 +62,19 @@ CREATE TABLE IF NOT EXISTS library_import (
 );
 CREATE INDEX IF NOT EXISTS idx_library_import_status
     ON library_import(status);
+CREATE TABLE IF NOT EXISTS anilist_token (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    access_token TEXT NOT NULL,
+    token_type TEXT NOT NULL,
+    obtained_at TEXT NOT NULL,
+    expires_at TEXT
+);
+CREATE TABLE IF NOT EXISTS anilist_mapping (
+    series_id TEXT PRIMARY KEY,
+    override_media_id INTEGER,
+    auto_media_id INTEGER,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -366,6 +385,85 @@ class TrackingDatabase:
                     for row in rows
                 }
         return summary
+
+    def save_token(self, token: StoredToken) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO anilist_token (
+                    id, access_token, token_type, obtained_at, expires_at
+                ) VALUES (1, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    access_token = excluded.access_token,
+                    token_type = excluded.token_type,
+                    obtained_at = excluded.obtained_at,
+                    expires_at = excluded.expires_at
+                """,
+                (token.access_token, token.token_type, token.obtained_at, token.expires_at),
+            )
+
+    def get_token(self) -> StoredToken | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT access_token, token_type, obtained_at, expires_at "
+                "FROM anilist_token WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return None
+        return StoredToken(
+            access_token=str(row["access_token"]),
+            token_type=str(row["token_type"]),
+            obtained_at=str(row["obtained_at"]),
+            expires_at=str(row["expires_at"]) if row["expires_at"] is not None else None,
+        )
+
+    def get_mapping(self, series_id: str) -> dict[str, int | None] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT override_media_id, auto_media_id "
+                "FROM anilist_mapping WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "override_media_id": (
+                int(row["override_media_id"])
+                if row["override_media_id"] is not None
+                else None
+            ),
+            "auto_media_id": (
+                int(row["auto_media_id"]) if row["auto_media_id"] is not None else None
+            ),
+        }
+
+    def upsert_mapping(self, series_id: str, media_id: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO anilist_mapping (series_id, auto_media_id, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(series_id) DO UPDATE SET
+                    auto_media_id = excluded.auto_media_id,
+                    updated_at = excluded.updated_at
+                """,
+                (series_id, media_id, now),
+            )
+
+    def set_override(self, series_id: str, media_id: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO anilist_mapping (series_id, override_media_id, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(series_id) DO UPDATE SET
+                    override_media_id = excluded.override_media_id,
+                    updated_at = excluded.updated_at
+                """,
+                (series_id, media_id, now),
+            )
 
     def _upsert(self, item: FeedItem, status: str, error_message: str | None) -> None:
         now = datetime.now(UTC).isoformat()

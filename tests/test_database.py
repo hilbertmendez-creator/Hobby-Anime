@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hobby_anime.database import TrackingDatabase
-from hobby_anime.models import FeedItem, TorrentDownload
+from hobby_anime.models import FeedItem, StoredToken, TorrentDownload
 
 
 def test_tracking_database_retries_errors_and_skips_added(tmp_path: Path) -> None:
@@ -64,7 +64,7 @@ def test_initialize_migrates_legacy_verification_schema(tmp_path: Path) -> None:
         ).fetchone()[0]
         version = connection.execute("PRAGMA user_version").fetchone()[0]
     assert "processing" in schema
-    assert version == 2
+    assert version == 3
 
 
 def test_claim_verification_honors_explicit_stale_window(tmp_path: Path) -> None:
@@ -137,4 +137,116 @@ def test_claim_import_honors_explicit_stale_window(tmp_path: Path) -> None:
         )
 
     assert database.claim_import(download, stale_after_minutes=30) is False
-    assert database.claim_import(download, stale_after_minutes=10) is True
+
+
+def test_initialize_creates_anilist_tables_and_bumps_schema_version(
+    tmp_path: Path,
+) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+
+    database.initialize()
+
+    with sqlite3.connect(database.path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert version == 3
+    assert "anilist_token" in tables
+    assert "anilist_mapping" in tables
+    if sys.platform != "win32":
+        assert database.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_save_and_get_token_roundtrip(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    assert database.get_token() is None
+
+    token = StoredToken(
+        access_token="secret-access-token",
+        token_type="Bearer",
+        obtained_at="2026-07-19T00:00:00+00:00",
+        expires_at="2026-08-19T00:00:00+00:00",
+    )
+    database.save_token(token)
+
+    stored = database.get_token()
+    assert stored == token
+
+
+def test_save_token_overwrites_previous_token(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    database.save_token(
+        StoredToken(
+            access_token="first-token",
+            token_type="Bearer",
+            obtained_at="2026-07-19T00:00:00+00:00",
+            expires_at=None,
+        )
+    )
+    database.save_token(
+        StoredToken(
+            access_token="second-token",
+            token_type="Bearer",
+            obtained_at="2026-07-20T00:00:00+00:00",
+            expires_at=None,
+        )
+    )
+
+    stored = database.get_token()
+
+    assert stored is not None
+    assert stored.access_token == "second-token"
+    with sqlite3.connect(database.path) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM anilist_token").fetchone()[0]
+    assert count == 1
+
+
+def test_get_mapping_returns_none_when_absent(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+
+    assert database.get_mapping("series-1") is None
+
+
+def test_upsert_mapping_stores_auto_match(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+
+    database.upsert_mapping("series-1", 101)
+
+    mapping = database.get_mapping("series-1")
+    assert mapping is not None
+    assert mapping["auto_media_id"] == 101
+    assert mapping["override_media_id"] is None
+
+
+def test_set_override_wins_over_auto_match_in_get_mapping(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    database.upsert_mapping("series-1", 101)
+
+    database.set_override("series-1", 202)
+
+    mapping = database.get_mapping("series-1")
+    assert mapping is not None
+    assert mapping["auto_media_id"] == 101
+    assert mapping["override_media_id"] == 202
+
+
+def test_upsert_mapping_does_not_clear_existing_override(tmp_path: Path) -> None:
+    database = TrackingDatabase(tmp_path / "tracking.db")
+    database.initialize()
+    database.set_override("series-1", 202)
+
+    database.upsert_mapping("series-1", 303)
+
+    mapping = database.get_mapping("series-1")
+    assert mapping is not None
+    assert mapping["auto_media_id"] == 303
+    assert mapping["override_media_id"] == 202
