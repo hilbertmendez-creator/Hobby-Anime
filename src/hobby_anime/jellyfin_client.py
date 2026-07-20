@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -114,6 +116,50 @@ class JellyfinClient:
             if start_index >= total or not items:
                 break
         return episodes
+
+    def series_path(self, series_id: str) -> Path | None:
+        """Resolve the on-disk folder for a series (read-only, no mutation).
+
+        Fetches the Series item with `Fields=Path` and returns its `Path`
+        when present. Falls back to the common parent directory of the
+        series' episode `MediaSources[].Path` values when the Series item
+        has no `Path`. Returns None when neither source yields a path.
+        """
+        payload = self._get(
+            f"/Users/{self.user_id}/Items/{series_id}",
+            {"Fields": "Path"},
+        )
+        raw_path = payload.get("Path")
+        if raw_path:
+            return Path(raw_path)
+        return self._series_path_from_media_sources(series_id)
+
+    def _series_path_from_media_sources(self, series_id: str) -> Path | None:
+        parent_dirs: list[str] = []
+        start_index = 0
+        while True:
+            params: dict[str, Any] = {
+                "ParentId": series_id,
+                "IncludeItemTypes": "Episode",
+                "Recursive": "true",
+                "Fields": "MediaSources",
+                "StartIndex": start_index,
+                "Limit": self.PAGE_SIZE,
+            }
+            payload = self._get(f"/Users/{self.user_id}/Items", params)
+            items = payload.get("Items", [])
+            for item in items:
+                for source in item.get("MediaSources") or []:
+                    source_path = source.get("Path")
+                    if source_path:
+                        parent_dirs.append(str(Path(source_path).parent))
+            start_index += len(items)
+            total = payload.get("TotalRecordCount", start_index)
+            if start_index >= total or not items:
+                break
+        if not parent_dirs:
+            return None
+        return Path(os.path.commonpath(parent_dirs))
 
     def _get(self, path: str, params: dict[str, Any]) -> Any:
         response = self.session.get(

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import requests
 
 from hobby_anime.jellyfin_client import JellyfinClient, _to_episode, _to_series
@@ -246,3 +248,71 @@ def test_list_watched_series_falls_back_to_episode_fetch_when_recursive_count_mi
     assert result == [
         WatchedSeries(id="s1", name="Frieren", total_episodes=3, watched_episodes=2)
     ]
+
+
+# --- series_path (Item B, PR1, tasks 1.1-1.6) ---
+
+
+def test_series_path_returns_path_from_series_fields() -> None:
+    session = FakeSession([FakeResponse({"Path": "/data/media/anime/Frieren"})])
+    client = JellyfinClient(
+        "http://jellyfin:8096",
+        api_key="key",
+        user_id="user-1",
+        session=session,
+    )
+
+    result = client.series_path("s1")
+
+    assert result == Path("/data/media/anime/Frieren")
+    url, kwargs = session.calls[0]
+    assert url == "http://jellyfin:8096/Users/user-1/Items/s1"
+    assert kwargs["params"]["Fields"] == "Path"
+
+
+def test_series_path_falls_back_to_media_sources_common_parent() -> None:
+    series_response = FakeResponse({})  # no "Path" key
+    episodes_response = FakeResponse(
+        {
+            "Items": [
+                {
+                    "Id": "e1",
+                    "MediaSources": [
+                        {"Path": "/data/media/anime/Frieren/S01/e1.mkv"}
+                    ],
+                },
+                {
+                    "Id": "e2",
+                    "MediaSources": [
+                        {"Path": "/data/media/anime/Frieren/S01/e2.mkv"}
+                    ],
+                },
+            ],
+            "TotalRecordCount": 2,
+        }
+    )
+    session = FakeSession([series_response, episodes_response])
+    client = JellyfinClient(
+        "http://jellyfin:8096",
+        api_key="key",
+        user_id="user-1",
+        session=session,
+    )
+
+    result = client.series_path("s1")
+
+    assert result == Path("/data/media/anime/Frieren/S01")
+
+
+def test_series_path_returns_none_when_path_and_media_sources_absent() -> None:
+    series_response = FakeResponse({})
+    episodes_response = FakeResponse({"Items": [], "TotalRecordCount": 0})
+    session = FakeSession([series_response, episodes_response])
+    client = JellyfinClient(
+        "http://jellyfin:8096",
+        api_key="key",
+        user_id="user-1",
+        session=session,
+    )
+
+    assert client.series_path("s1") is None
