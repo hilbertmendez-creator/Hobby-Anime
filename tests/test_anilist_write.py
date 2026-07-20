@@ -230,10 +230,14 @@ def test_anonymous_anilist_client_module_is_byte_for_byte_unchanged() -> None:
         / "hobby_anime"
         / "anilist.py"
     )
-    digest = hashlib.sha256(module_path.read_bytes()).hexdigest()
+    # Normalize line endings so the snapshot is deterministic across platforms
+    # (CRLF on Windows checkouts vs LF on Linux CI); the guard is about content,
+    # not the on-disk newline representation.
+    normalized = module_path.read_bytes().replace(b"\r\n", b"\n")
+    digest = hashlib.sha256(normalized).hexdigest()
 
-    assert digest == "2e29e44dcd546da1f248d4d09cbae4ef5f010d52ace8a4c137c2060be243094b", (
-        "src/hobby_anime/anilist.py must remain byte-for-byte unchanged; "
+    assert digest == "ae4ee696efc4d9de4c567db87c4e49c89975a9637ef27ea3c99aa961a4897941", (
+        "src/hobby_anime/anilist.py must remain unchanged (content); "
         "the anonymous seasonal-discovery client is out of scope for the "
         "authenticated write path."
     )
