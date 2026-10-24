@@ -271,6 +271,8 @@ hobby-anime watched
 hobby-anime anilist-auth
 hobby-anime push-anilist
 hobby-anime cleanup
+hobby-anime telegram-login
+hobby-anime telegram-listen
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
@@ -282,6 +284,73 @@ reanuda el seeding, la registra como verificada con una nota de auditoría y, si
 Sonarr está habilitado, encola la importación. `approve` **no** vuelve a
 inspeccionar el archivo, así que usalo solo con descargas que confirmaste que
 están correctamente etiquetadas.
+
+## Fuente opcional: canales de Telegram
+
+Además del RSS, el agente puede escuchar canales de Telegram y descargar los
+videos nuevos que publiquen. Usa una **cuenta de usuario** (MTProto, con
+[Telethon](https://docs.telethon.dev)), porque los bots solo pueden bajar
+archivos de hasta 20 MB y no pueden entrar a canales ajenos.
+
+Los archivos siguen el mismo camino que los torrents:
+
+```text
+mensaje nuevo -> filtros por nombre y tamaño -> cuarentena (/data/torrents/telegram/quarantine)
+  -> ffprobe (política de español) -> verified/telegram -> cola de importación -> Sonarr
+```
+
+Cada mensaje se registra como `tg-<canal>-<mensaje>` en las mismas tablas de
+verificación e importación, así que `status`, `rejections` y `approve tg-...`
+funcionan igual. Un archivo rechazado se queda en cuarentena hasta que lo
+apruebes o lo borres.
+
+### Puesta en marcha
+
+1. Crea `API_ID` y `API_HASH` en <https://my.telegram.org> → *API development tools*.
+2. Únete con la cuenta a los canales que quieras seguir.
+3. Completa en `.env`: `TELEGRAM_SOURCE_ENABLED=true`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`.
+4. Crea la sesión (pide teléfono, código y, si la tienes, la clave de dos pasos).
+   Al terminar lista los canales con su id:
+
+   ```bash
+   docker compose run --rm -it hobby-anime-telegram telegram-login
+   ```
+
+5. Copia los ids o `@nombres` a `TELEGRAM_CHANNELS` (separados por comas).
+6. Arranca el servicio:
+
+   ```bash
+   docker compose --profile telegram up -d hobby-anime-telegram
+   ```
+
+| Variable | Valor predeterminado | Uso |
+| --- | --- | --- |
+| `TELEGRAM_SOURCE_ENABLED` | `false` | Activa el listener |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | vacío | Credenciales de my.telegram.org |
+| `TELEGRAM_SESSION_PATH` | `/config/telegram` | Sesión de usuario (se guarda como `.session`) |
+| `TELEGRAM_CHANNELS` | vacío | `@nombre`, `t.me/nombre` o id numérico (`-100...`) |
+| `TELEGRAM_INCLUDE_TERMS` | vacío | Exige todos los términos en el nombre del archivo |
+| `TELEGRAM_EXCLUDE_TERMS` | vacío | Descarta si coincide cualquiera |
+| `TELEGRAM_MIN_FILE_MB` | `50` | Ignora muestras, stickers y clips |
+| `TELEGRAM_MAX_FILE_GB` | `4` | Límite por archivo (Telegram permite 2 GB, 4 GB con Premium) |
+| `TELEGRAM_QUARANTINE_PATH` | `/data/torrents/telegram/quarantine` | Descargas sin verificar |
+| `TELEGRAM_VERIFIED_PATH` | `/data/torrents/verified/telegram` | Debe quedar dentro de `SONARR_VERIFIED_ROOT` |
+| `TELEGRAM_CONCURRENT_DOWNLOADS` | `1` | Descargas simultáneas (1 a 4) |
+| `TELEGRAM_BACKFILL_MESSAGES` | `0` | Mensajes recientes a revisar al arrancar, por canal |
+
+Notas importantes:
+
+- **Usa un número secundario.** Telegram puede limitar o bloquear cuentas que
+  descargan mucho de forma automática. El cliente espera solo cuando Telegram
+  pide pausas (`FloodWait`) de hasta 5 minutos.
+- **La sesión equivale a tu cuenta.** El archivo `telegram.session` da acceso
+  completo; queda con permisos `600` en `/config` y nunca debe ir al repositorio.
+  Si lo pierdes o sospechas de él, ciérralo desde Telegram → *Dispositivos*.
+- **Nombres de archivo.** Muchos canales suben videos sin nombre; en ese caso se
+  usa la primera línea del texto del mensaje. Si Sonarr no reconoce el episodio,
+  ajusta `TELEGRAM_INCLUDE_TERMS` o renombra antes de aprobar.
+- La política de español con ffprobe se aplica siempre, igual que con torrents.
+- Usa solo canales que distribuyan contenido que tengas derecho a descargar.
 
 ## Estado visto (Jellyfin)
 

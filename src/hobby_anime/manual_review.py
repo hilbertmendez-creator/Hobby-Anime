@@ -6,6 +6,7 @@ from hobby_anime.config import Settings
 from hobby_anime.database import TrackingDatabase
 from hobby_anime.models import RejectedDownload
 from hobby_anime.qbittorrent_client import QBittorrentGateway
+from hobby_anime.telegram_source import approve_telegram_rejection, is_telegram_id
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def approve_rejection(
     gateway: QBittorrentGateway | None = None,
     database: TrackingDatabase | None = None,
 ) -> RejectedDownload:
-    if not settings.qbt_password:
+    if not is_telegram_id(torrent_hash) and not settings.qbt_password:
         raise ValueError("QBITTORRENT_PASSWORD is required")
 
     database = _database(settings, database)
@@ -43,6 +44,11 @@ def approve_rejection(
     if not matches:
         raise ApprovalError(f"{torrent_hash} is not a rejected download")
     rejected = matches[0]
+
+    if is_telegram_id(torrent_hash):
+        approve_telegram_rejection(settings, rejected, database)
+        LOGGER.info("Manually approved rejected Telegram download: %s", rejected.name)
+        return rejected
 
     gateway = gateway or QBittorrentGateway(
         settings.qbt_host,

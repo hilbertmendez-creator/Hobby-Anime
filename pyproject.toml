@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hobby-anime"
 version = "0.1.0"
-description = "Automatización local de medios mediante RSS, qBittorrent, AniList y Ollama"
+description = "Automatización local de medios mediante RSS, Telegram, qBittorrent, AniList y Ollama"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,8 @@ dependencies = [
     "requests>=2.32,<3",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",
+    "Telethon>=1.40,<2",
+    "cryptg>=0.5,<1",
 ]
 
 [project.optional-dependencies]

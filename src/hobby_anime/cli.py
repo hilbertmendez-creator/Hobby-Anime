@@ -35,6 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init-db", help="Create or upgrade the local database")
     subparsers.add_parser("audit", help="Print the detected local media catalog")
     subparsers.add_parser("status", help="Show RSS, verification, and import counters")
+    subparsers.add_parser(
+        "telegram-login",
+        help="Create the Telegram user session (interactive) and list readable channels",
+    )
+    subparsers.add_parser(
+        "telegram-listen",
+        help="Watch configured Telegram channels and ingest new video files",
+    )
     subparsers.add_parser("doctor", help="Check storage and internal service connectivity")
     rejections_parser = subparsers.add_parser(
         "rejections", help="List downloads rejected by the language policy"
@@ -339,6 +347,15 @@ def main() -> int:
         return 1 if result.failed else 0
     if args.command == "scheduler":
         start_scheduler(settings)
+        return 0
+    if args.command == "telegram-login":
+        from hobby_anime.telegram_listener import run_login
+
+        return run_login(settings)
+    if args.command == "telegram-listen":
+        from hobby_anime.telegram_listener import run_listener
+
+        run_listener(settings)
         return 0
     if args.command == "init-db":
         TrackingDatabase(settings.database_path).initialize()

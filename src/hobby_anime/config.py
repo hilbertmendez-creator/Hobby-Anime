@@ -125,6 +125,19 @@ class Settings:
     anilist_client_id: str = ""
     anilist_client_secret: str = ""
     anilist_redirect_port: int = 8712
+    telegram_source_enabled: bool = False
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session_path: Path = Path("/config/telegram")
+    telegram_channels: tuple[str, ...] = ()
+    telegram_include_terms: tuple[str, ...] = ()
+    telegram_exclude_terms: tuple[str, ...] = ()
+    telegram_min_file_mb: int = 50
+    telegram_max_file_gb: int = 4
+    telegram_quarantine_path: Path = Path("/data/torrents/telegram/quarantine")
+    telegram_verified_path: Path = Path("/data/torrents/verified/telegram")
+    telegram_concurrent_downloads: int = 1
+    telegram_backfill_messages: int = 0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -233,6 +246,23 @@ class Settings:
             anilist_client_id=os.getenv("ANILIST_CLIENT_ID", ""),
             anilist_client_secret=os.getenv("ANILIST_CLIENT_SECRET", ""),
             anilist_redirect_port=_int("ANILIST_REDIRECT_PORT", 8712),
+            telegram_source_enabled=_bool("TELEGRAM_SOURCE_ENABLED", False),
+            telegram_api_id=_int("TELEGRAM_API_ID", 0),
+            telegram_api_hash=os.getenv("TELEGRAM_API_HASH", "").strip(),
+            telegram_session_path=Path(os.getenv("TELEGRAM_SESSION_PATH", "/config/telegram")),
+            telegram_channels=_csv("TELEGRAM_CHANNELS"),
+            telegram_include_terms=_csv("TELEGRAM_INCLUDE_TERMS"),
+            telegram_exclude_terms=_csv("TELEGRAM_EXCLUDE_TERMS"),
+            telegram_min_file_mb=_int("TELEGRAM_MIN_FILE_MB", 50),
+            telegram_max_file_gb=_int("TELEGRAM_MAX_FILE_GB", 4),
+            telegram_quarantine_path=Path(
+                os.getenv("TELEGRAM_QUARANTINE_PATH", "/data/torrents/telegram/quarantine")
+            ),
+            telegram_verified_path=Path(
+                os.getenv("TELEGRAM_VERIFIED_PATH", "/data/torrents/verified/telegram")
+            ),
+            telegram_concurrent_downloads=_int("TELEGRAM_CONCURRENT_DOWNLOADS", 1),
+            telegram_backfill_messages=_int("TELEGRAM_BACKFILL_MESSAGES", 0),
         )
 
     def validate_daily(self, *, dry_run: bool = False) -> None:
@@ -248,6 +278,35 @@ class Settings:
                 "SPANISH_LANGUAGE_TERMS or SPANISH_TRUSTED_GROUPS is required "
                 "when SPANISH_ONLY is enabled"
             )
+        if errors:
+            raise ValueError("; ".join(errors))
+
+    def validate_telegram(self, *, for_login: bool = False) -> None:
+        errors: list[str] = []
+        if not for_login and not self.telegram_source_enabled:
+            errors.append("TELEGRAM_SOURCE_ENABLED must be true")
+        if self.telegram_api_id <= 0:
+            errors.append("TELEGRAM_API_ID is required (get it at my.telegram.org)")
+        if not self.telegram_api_hash:
+            errors.append("TELEGRAM_API_HASH is required (get it at my.telegram.org)")
+        if not for_login and not self.telegram_channels:
+            errors.append("TELEGRAM_CHANNELS is required")
+        if self.telegram_min_file_mb < 0:
+            errors.append("TELEGRAM_MIN_FILE_MB must be zero or positive")
+        if self.telegram_max_file_gb <= 0:
+            errors.append("TELEGRAM_MAX_FILE_GB must be positive")
+        if not 1 <= self.telegram_concurrent_downloads <= 4:
+            errors.append("TELEGRAM_CONCURRENT_DOWNLOADS must be between 1 and 4")
+        if self.telegram_backfill_messages < 0:
+            errors.append("TELEGRAM_BACKFILL_MESSAGES must be zero or positive")
+        quarantine = self.telegram_quarantine_path
+        verified = self.telegram_verified_path
+        if quarantine == verified or verified in quarantine.parents or quarantine in verified.parents:
+            errors.append("TELEGRAM_QUARANTINE_PATH and TELEGRAM_VERIFIED_PATH must not overlap")
+        if self.sonarr_enabled and self.sonarr_import_after_verify:
+            root = self.sonarr_verified_root
+            if verified != root and root not in verified.parents:
+                errors.append("TELEGRAM_VERIFIED_PATH must live inside SONARR_VERIFIED_ROOT")
         if errors:
             raise ValueError("; ".join(errors))
 

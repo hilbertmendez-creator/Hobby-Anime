@@ -193,6 +193,35 @@ services:
     networks:
       - media
 
+  # Fuente opcional: canales de Telegram. Se activa con `--profile telegram`.
+  # Antes del primer arranque crea la sesión de usuario de forma interactiva:
+  #   docker compose run --rm -it hobby-anime-telegram telegram-login
+  hobby-anime-telegram:
+    build:
+      context: .
+    profiles:
+      - telegram
+    restart: unless-stopped
+    init: true
+    user: ${PUID:-1000}:${PGID:-1000}
+    env_file:
+      - .env
+    command: ["telegram-listen"]
+    volumes:
+      - ${AGENT_CONFIG_ROOT:-/volume1/docker/hobby-anime/agent}:/config
+      # Escritura necesaria: cuarentena y verified/telegram viven aquí
+      - ${DATA_ROOT:-/volume1/data}/torrents:/data/torrents
+    healthcheck:
+      test: ["CMD-SHELL", "hobby-anime status >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: ${TELEGRAM_MEM_LIMIT:-512m}
+    cpus: ${TELEGRAM_CPUS:-1.0}
+    networks:
+      - media
+
   ollama:
     image: ${OLLAMA_IMAGE:-ollama/ollama:0.32.1}
     profiles:
