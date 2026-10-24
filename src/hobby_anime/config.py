@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -138,6 +138,9 @@ class Settings:
     telegram_verified_path: Path = Path("/data/torrents/verified/telegram")
     telegram_concurrent_downloads: int = 1
     telegram_backfill_messages: int = 0
+    terabox_enabled: bool = False
+    terabox_cookie: str = field(default="", repr=False)
+    terabox_max_files_per_link: int = 10
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -263,6 +266,9 @@ class Settings:
             ),
             telegram_concurrent_downloads=_int("TELEGRAM_CONCURRENT_DOWNLOADS", 1),
             telegram_backfill_messages=_int("TELEGRAM_BACKFILL_MESSAGES", 0),
+            terabox_enabled=_bool("TERABOX_ENABLED", False),
+            terabox_cookie=os.getenv("TERABOX_COOKIE", "").strip(),
+            terabox_max_files_per_link=_int("TERABOX_MAX_FILES_PER_LINK", 10),
         )
 
     def validate_daily(self, *, dry_run: bool = False) -> None:
@@ -299,6 +305,11 @@ class Settings:
             errors.append("TELEGRAM_CONCURRENT_DOWNLOADS must be between 1 and 4")
         if self.telegram_backfill_messages < 0:
             errors.append("TELEGRAM_BACKFILL_MESSAGES must be zero or positive")
+        if not for_login and self.terabox_enabled:
+            if not self.terabox_cookie:
+                errors.append("TERABOX_COOKIE is required when TERABOX_ENABLED is true")
+            if not 1 <= self.terabox_max_files_per_link <= 50:
+                errors.append("TERABOX_MAX_FILES_PER_LINK must be between 1 and 50")
         quarantine = self.telegram_quarantine_path
         verified = self.telegram_verified_path
         if quarantine == verified or verified in quarantine.parents or quarantine in verified.parents:

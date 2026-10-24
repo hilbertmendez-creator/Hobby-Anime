@@ -39,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
         "telegram-login",
         help="Create the Telegram user session (interactive) and list readable channels",
     )
+    terabox_parser = subparsers.add_parser(
+        "terabox-check",
+        help="List the files behind a TeraBox share link to test TERABOX_COOKIE (no download)",
+    )
+    terabox_parser.add_argument("link", help="TeraBox share link")
     subparsers.add_parser(
         "telegram-listen",
         help="Watch configured Telegram channels and ingest new video files",
@@ -352,6 +357,15 @@ def main() -> int:
         from hobby_anime.telegram_listener import run_login
 
         return run_login(settings)
+    if args.command == "terabox-check":
+        from hobby_anime.terabox import TeraBoxClient
+
+        client = TeraBoxClient(settings.terabox_cookie, timeout_seconds=settings.request_timeout_seconds)
+        files = client.resolve(args.link, settings.terabox_max_files_per_link)
+        for file in files:
+            print(f"{file.size / 1024**2:8.0f} MB  {file.name}")
+        print(f"{len(files)} file(s) found; cookie works")
+        return 0
     if args.command == "telegram-listen":
         from hobby_anime.telegram_listener import run_listener
 

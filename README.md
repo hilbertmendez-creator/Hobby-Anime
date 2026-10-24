@@ -273,6 +273,7 @@ hobby-anime push-anilist
 hobby-anime cleanup
 hobby-anime telegram-login
 hobby-anime telegram-listen
+hobby-anime terabox-check <enlace>
 ```
 
 El contenedor ejecuta `hobby-anime scheduler` de forma predeterminada.
@@ -351,6 +352,48 @@ Notas importantes:
   ajusta `TELEGRAM_INCLUDE_TERMS` o renombra antes de aprobar.
 - La política de español con ffprobe se aplica siempre, igual que con torrents.
 - Usa solo canales que distribuyan contenido que tengas derecho a descargar.
+
+### Enlaces de TeraBox (opcional)
+
+Muchos canales no suben el video, sino un enlace de TeraBox como
+`https://1024terabox.com/s/1abc...`. Con `TERABOX_ENABLED=true` el listener
+detecta esos enlaces (también los ocultos detrás de un texto), lista los
+archivos compartidos, descarga solo los videos que pasen los mismos filtros y
+los manda a la misma cuarentena con revisión de español. Si el enlace es una
+carpeta, revisa un nivel de subcarpetas.
+
+El cliente habla **solo con TeraBox**: no usa APIs ni bots de terceros, y la
+cookie se guarda limitada a los dominios de TeraBox, así que nunca se envía a
+otro sitio aunque haya redirecciones.
+
+1. Crea una cuenta **secundaria** de TeraBox e inicia sesión en el navegador.
+2. Copia el valor de la cookie `ndus`: en Edge o Chrome, F12 → *Application* →
+   *Cookies* → `https://www.terabox.com` → `ndus`.
+3. Ponlo en `.env` como `TERABOX_COOKIE=...` y activa `TERABOX_ENABLED=true`.
+4. Prueba la cookie con un enlace, sin descargar nada:
+
+   ```bash
+   docker compose run --rm hobby-anime-telegram terabox-check https://1024terabox.com/s/1abc...
+   ```
+
+5. Reinicia `hobby-anime-telegram`.
+
+| Variable | Valor predeterminado | Uso |
+| --- | --- | --- |
+| `TERABOX_ENABLED` | `false` | Procesa enlaces de TeraBox en los mensajes |
+| `TERABOX_COOKIE` | vacío | Cookie `ndus` de la cuenta (acepta el valor solo o `ndus=...`) |
+| `TERABOX_MAX_FILES_PER_LINK` | `10` | Tope de archivos por enlace (1 a 50) |
+
+Límites conocidos:
+
+- **Es frágil.** TeraBox no tiene una API oficial para esto; si cambia su página,
+  los enlaces fallarán hasta actualizar el módulo `terabox.py`.
+- **La cookie vence.** Cuando TeraBox la rechaza, llega un aviso por Telegram
+  (como máximo uno cada 6 horas). Copia una nueva y reinicia el servicio.
+- **Cuentas gratis son lentas** y TeraBox puede limitar o suspender cuentas que
+  descargan de forma automatizada; por eso la cuenta debe ser secundaria.
+- Enlaces detrás de acortadores con anuncios o captcha (ouo, linkvertise, etc.)
+  no se procesan.
 
 ## Estado visto (Jellyfin)
 

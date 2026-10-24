@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -28,12 +29,14 @@ from hobby_anime.telegram_source import (
     safe_filename,
     verify_download,
 )
+from hobby_anime.terabox import TeraBoxAuthError, TeraBoxClient, find_links
 
 LOGGER = logging.getLogger(__name__)
 
 # Large files can take a while; do not let a parallel run steal the claim mid-download.
 CLAIM_STALE_MINUTES = 240
 FLOOD_SLEEP_SECONDS = 300
+AUTH_ALERT_INTERVAL_SECONDS = 6 * 3600
 
 Downloader = Callable[[Any, Path], Awaitable[Any]]
 
@@ -49,24 +52,72 @@ class TelegramIngestor:
         database: TrackingDatabase,
         inspector: Inspector,
         notifier: Notifier | None = None,
+        terabox: TeraBoxClient | None = None,
     ) -> None:
         self.settings = settings
         self.download = download
         self.database = database
         self.inspector = inspector
         self.notifier = notifier
+        self.terabox = terabox
         self.semaphore = asyncio.Semaphore(settings.telegram_concurrent_downloads)
+        self._last_auth_alert: float | None = None
 
     async def handle(self, message: Any) -> str:
-        """Process one message and return a short outcome label."""
+        """Process one message and return a short outcome label.
+
+        A message with several TeraBox files returns the label of the last file.
+        """
         media = getattr(message, "file", None)
-        if media is None:
-            return "no-file"
+        if media is not None:
+            fingerprint = message_fingerprint(message.chat_id, message.id)
+            file_name = message_file_name(message, fingerprint)
+            return await self._ingest(
+                fingerprint,
+                file_name,
+                getattr(media, "size", None),
+                lambda path: self.download(message, path),
+            )
 
-        fingerprint = message_fingerprint(message.chat_id, message.id)
-        file_name = message_file_name(message, fingerprint)
-        size = getattr(media, "size", None)
+        if self.terabox is not None:
+            links = find_links(getattr(message, "message", None) or "", message_urls(message))
+            if links:
+                return await self._handle_terabox(message, links)
+        return "no-file"
 
+    async def _handle_terabox(self, message: Any, links: list[str]) -> str:
+        outcome = "filtered"
+        base = message_fingerprint(message.chat_id, message.id)
+        for link in links:
+            try:
+                files = await asyncio.to_thread(
+                    self.terabox.resolve, link, self.settings.terabox_max_files_per_link
+                )
+            except TeraBoxAuthError as exc:
+                await self._auth_alert(str(exc))
+                return "error"
+            except Exception:
+                LOGGER.exception("Could not read TeraBox link from message %s", base)
+                outcome = "error"
+                continue
+            for file in files:
+                fingerprint = f"{base}-tb{file.fs_id}"
+                name = safe_filename(file.name, f"{fingerprint}.mkv")
+                outcome = await self._ingest(
+                    fingerprint,
+                    name,
+                    file.size,
+                    lambda path, file=file: asyncio.to_thread(self.terabox.download, file, path),
+                )
+        return outcome
+
+    async def _ingest(
+        self,
+        fingerprint: str,
+        file_name: str,
+        size: int | None,
+        fetch: Callable[[Path], Awaitable[Any]],
+    ) -> str:
         reason = candidate_rejection(file_name, size, self.settings)
         if reason:
             LOGGER.debug("Skipping Telegram file %s: %s", file_name, reason)
@@ -95,7 +146,7 @@ class TelegramIngestor:
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 LOGGER.info("Downloading Telegram file: %s (%.0f MB)", file_name, (size or 0) / 1024**2)
-                await self.download(message, partial)
+                await fetch(partial)
                 if not partial.is_file() or partial.stat().st_size != size:
                     raise IOError("Telegram download is incomplete")
                 partial.replace(target)
@@ -108,6 +159,8 @@ class TelegramIngestor:
                     None,
                     f"Download failed: {exc}",
                 )
+                if isinstance(exc, TeraBoxAuthError):
+                    await self._auth_alert(str(exc))
                 LOGGER.exception("Telegram download failed: %s", file_name)
                 return "error"
 
@@ -120,6 +173,23 @@ class TelegramIngestor:
                 notifier=self.notifier,
             )
 
+    async def _auth_alert(self, detail: str) -> None:
+        LOGGER.error("TeraBox authentication problem: %s", detail)
+        now = time.monotonic()
+        if self.notifier is None:
+            return
+        if self._last_auth_alert is not None and now - self._last_auth_alert < AUTH_ALERT_INTERVAL_SECONDS:
+            return
+        self._last_auth_alert = now
+        try:
+            await asyncio.to_thread(
+                self.notifier.send,
+                "Hobby-Anime TeraBox: la cookie ndus parece vencida o rechazada.\n"
+                f"Actualiza TERABOX_COOKIE y reinicia hobby-anime-telegram.\n{detail}",
+            )
+        except Exception:
+            LOGGER.exception("Could not send TeraBox alert")
+
 
 def message_file_name(message: Any, fingerprint: str) -> str:
     """Prefer the uploaded file name; videos sent as media often have none."""
@@ -131,6 +201,16 @@ def message_file_name(message: Any, fingerprint: str) -> str:
         if caption and caption[0].strip():
             raw_name = caption[0].strip()[:150] + extension
     return safe_filename(raw_name, f"{fingerprint}{extension}")
+
+
+def message_urls(message: Any) -> list[str]:
+    """Hidden links (text with a URL behind it) live in message entities."""
+    urls: list[str] = []
+    for entity in getattr(message, "entities", None) or ():
+        url = getattr(entity, "url", None)
+        if url:
+            urls.append(str(url))
+    return urls
 
 
 def parse_channel_ref(value: str) -> str | int:
@@ -219,6 +299,11 @@ async def _listen(settings: Settings) -> None:
             settings.telegram_chat_id,
             settings.request_timeout_seconds,
         ),
+        terabox=(
+            TeraBoxClient(settings.terabox_cookie, timeout_seconds=settings.request_timeout_seconds)
+            if settings.terabox_enabled
+            else None
+        ),
     )
 
     chats = [await client.get_entity(parse_channel_ref(ref)) for ref in settings.telegram_channels]
@@ -244,10 +329,11 @@ async def _listen(settings: Settings) -> None:
                 schedule(message)
 
     LOGGER.info(
-        "Telegram listener started: channels=%d concurrent=%d backfill=%d",
+        "Telegram listener started: channels=%d concurrent=%d backfill=%d terabox=%s",
         len(chats),
         settings.telegram_concurrent_downloads,
         settings.telegram_backfill_messages,
+        settings.terabox_enabled,
     )
     await client.run_until_disconnected()
 
